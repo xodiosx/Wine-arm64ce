@@ -1384,13 +1384,14 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
     XFlush( data->display );
 }
 
-static void window_set_config( struct x11drv_win_data *data, const RECT *new_rect, BOOL above )
+static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL above )
 {
     static const UINT fullscreen_mask = (1 << NET_WM_STATE_MAXIMIZED) | (1 << NET_WM_STATE_FULLSCREEN);
     static const UINT maximized_mask = 1 << NET_WM_STATE_MAXIMIZED;
     UINT effective_net_wm_state, mask = 0, net_wm_state = -1;
     const RECT *old_rect = &data->pending_state.rect;
     XWindowChanges changes;
+    RECT *new_rect = &rect;
     BOOL is_maximized;
 
     data->desired_state.rect = *new_rect;
@@ -1435,6 +1436,11 @@ static void window_set_config( struct x11drv_win_data *data, const RECT *new_rec
         if (changes.height > 65535) changes.height = 65535;
         mask |= CWWidth | CWHeight;
     }
+    else
+    {
+        new_rect->right = new_rect->left + old_rect->right - old_rect->left;
+        new_rect->bottom = new_rect->top + old_rect->bottom - old_rect->top;
+    }
 
     /* only the size is allowed to change for the desktop window or systray docked windows */
     if ((old_rect->left != new_rect->left || old_rect->top != new_rect->top) &&
@@ -1444,6 +1450,10 @@ static void window_set_config( struct x11drv_win_data *data, const RECT *new_rec
         changes.x = pt.x;
         changes.y = pt.y;
         mask |= CWX | CWY;
+    }
+    else
+    {
+        OffsetRect( new_rect, old_rect->left - new_rect->left, old_rect->top - new_rect->top );
     }
 
     if (data->force_below_hack)
@@ -1992,7 +2002,7 @@ void window_wm_state_notify( struct x11drv_win_data *data, unsigned long serial,
     /* send any pending changes from the desired state */
     window_set_wm_state( data, data->desired_state.wm_state, data->desired_state.activate );
     window_set_net_wm_state( data, data->desired_state.net_wm_state );
-    window_set_config( data, &data->desired_state.rect, FALSE );
+    window_set_config( data, data->desired_state.rect, FALSE );
     window_set_mwm_hints( data, &data->desired_state.mwm_hints );
 
     if (data->current_state.wm_state == NormalState) NtUserSetProp( data->hwnd, focus_time_prop, (HANDLE)time );
@@ -2019,7 +2029,7 @@ void window_net_wm_state_notify( struct x11drv_win_data *data, unsigned long ser
     /* send any pending changes from the desired state */
     window_set_wm_state( data, data->desired_state.wm_state, data->desired_state.activate );
     window_set_net_wm_state( data, data->desired_state.net_wm_state );
-    window_set_config( data, &data->desired_state.rect, FALSE );
+    window_set_config( data, data->desired_state.rect, FALSE );
     window_set_mwm_hints( data, &data->desired_state.mwm_hints );
 }
 
@@ -2212,7 +2222,7 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags, 
     if (data->is_offscreen) OffsetRect( &new_rect, window_rect.left - old_rects->window.left,
                                         window_rect.top - old_rects->window.top );
 
-    window_set_config( data, &new_rect, above );
+    window_set_config( data, new_rect, above );
     set_mwm_hints( data, style, ex_style );
 }
 
