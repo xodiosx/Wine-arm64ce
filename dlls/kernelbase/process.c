@@ -1339,12 +1339,7 @@ HANDLE WINAPI DECLSPEC_HOTPATCH OpenProcess( DWORD access, BOOL inherit, DWORD i
 
     if (GetVersion() & 0x80000000) access = PROCESS_ALL_ACCESS;
 
-    attr.Length = sizeof(OBJECT_ATTRIBUTES);
-    attr.RootDirectory = 0;
-    attr.Attributes = inherit ? OBJ_INHERIT : 0;
-    attr.ObjectName = NULL;
-    attr.SecurityDescriptor = NULL;
-    attr.SecurityQualityOfService = NULL;
+    InitializeObjectAttributes( &attr, NULL, inherit ? OBJ_INHERIT : 0, 0, NULL );
 
     /* PROTON HACK:
      * On Windows, the Steam client puts its process ID into the registry
