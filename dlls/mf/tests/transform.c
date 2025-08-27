@@ -6166,7 +6166,7 @@ failed:
     CoUninitialize();
 }
 
-static void test_wmv_decoder(void)
+static void test_wmv_decoder(BOOL use_2d_buffer)
 {
     const GUID *const class_id = &CLSID_CWMVDecMediaObject;
     const struct transform_info expect_mft_info =
@@ -6249,7 +6249,7 @@ static void test_wmv_decoder(void)
         {ATTR_GUID(MF_MT_SUBTYPE, MFVideoFormat_VC1S)},
     };
     static const MFVideoArea actual_aperture = {.Area={96,96}};
-    static const DWORD actual_width = 96, actual_height = 96;
+    static const DWORD actual_width = 96, actual_height = 96, nv12_aligned_width = 128;
     const struct attribute_desc expect_output_attributes[] =
     {
         ATTR_BLOB(MF_MT_GEOMETRIC_APERTURE, &actual_aperture, sizeof(actual_aperture)),
@@ -6496,6 +6496,12 @@ static void test_wmv_decoder(void)
         .compare = compare_nv12, .compare_rect = {.right = 82, .bottom = 84},
         .dump = dump_nv12, .size = {.cx = actual_width, .cy = actual_height},
     };
+    const struct buffer_desc output_buffer_desc_nv12_2d =
+    {
+        .length = nv12_aligned_width * actual_height * 3 / 2,
+        .compare = compare_nv12, .compare_rect = {.right = 82, .bottom = 84},
+        .dump = dump_nv12, .size = {.cx = nv12_aligned_width, .cy = actual_height},
+    };
     const struct buffer_desc output_buffer_desc_rgb =
     {
         .length = actual_width * actual_height * 4,
@@ -6507,6 +6513,12 @@ static void test_wmv_decoder(void)
         .attributes = output_sample_attributes,
         .sample_time = 0, .sample_duration = 333333,
         .buffer_count = 1, .buffers = &output_buffer_desc_nv12,
+    };
+    const struct sample_desc output_sample_desc_nv12_2d =
+    {
+        .attributes = output_sample_attributes,
+        .sample_time = 0, .sample_duration = 333333,
+        .buffer_count = 1, .buffers = &output_buffer_desc_nv12_2d,
     };
     const struct sample_desc output_sample_desc_rgb =
     {
@@ -6522,8 +6534,11 @@ static void test_wmv_decoder(void)
         const MFT_INPUT_STREAM_INFO *expect_input_info;
         const MFT_OUTPUT_STREAM_INFO *expect_output_info;
         const struct sample_desc *output_sample_desc;
+        const struct sample_desc *output_sample_desc_2d;
         const WCHAR *result_bitmap;
+        const WCHAR *result_bitmap_2d;
         ULONG delta;
+        BOOL skip_;
         BOOL new_transform;
         BOOL todo;
     }
@@ -6536,7 +6551,9 @@ static void test_wmv_decoder(void)
             .expect_input_info = &expect_input_info,
             .expect_output_info = &expect_output_info,
             .output_sample_desc = &output_sample_desc_nv12,
+            .output_sample_desc_2d = &output_sample_desc_nv12_2d,
             .result_bitmap = L"nv12frame.bmp",
+            .result_bitmap_2d = L"nv12frame-2d.bmp",
             .delta = 0,
         },
 
@@ -6549,6 +6566,19 @@ static void test_wmv_decoder(void)
             .output_sample_desc = &output_sample_desc_nv12,
             .result_bitmap = L"nv12frame.bmp",
             .delta = 0,
+            .skip_ = use_2d_buffer, /* negative stride is invalid for 2D YUV */
+        },
+
+        {
+            /* WMV1 -> RGB (negative stride) instead of YUV for 2D */
+            .output_type_desc = output_type_desc_rgb_negative_stride,
+            .expect_output_type_desc = expect_output_type_desc_rgb_negative_stride,
+            .expect_input_info = &expect_input_info_rgb,
+            .expect_output_info = &expect_output_info_rgb,
+            .output_sample_desc = &output_sample_desc_rgb,
+            .result_bitmap = L"rgb32frame-flip.bmp",
+            .delta = 5,
+            .skip_ = !use_2d_buffer,
         },
 
         {
@@ -6558,8 +6588,9 @@ static void test_wmv_decoder(void)
             .expect_input_info = &expect_input_info_rgb,
             .expect_output_info = &expect_output_info_rgb,
             .output_sample_desc = &output_sample_desc_rgb,
-            .result_bitmap = L"rgb32frame-flip.bmp",
+            .result_bitmap = use_2d_buffer ? L"rgb32frame.bmp" : L"rgb32frame-flip.bmp",
             .delta = 5,
+            .todo = use_2d_buffer,
         },
 
         {
@@ -6580,8 +6611,9 @@ static void test_wmv_decoder(void)
             .expect_input_info = &expect_input_info_rgb,
             .expect_output_info = &expect_output_info_rgb,
             .output_sample_desc = &output_sample_desc_rgb,
-            .result_bitmap = L"rgb32frame-flip.bmp",
+            .result_bitmap = use_2d_buffer ? L"rgb32frame.bmp" : L"rgb32frame-flip.bmp",
             .delta = 5,
+            .todo = use_2d_buffer,
         },
 
         {
@@ -6603,8 +6635,9 @@ static void test_wmv_decoder(void)
             .expect_input_info = &expect_input_info_rgb,
             .expect_output_info = &expect_output_info_rgb,
             .output_sample_desc = &output_sample_desc_rgb,
-            .result_bitmap = L"rgb32frame.bmp",
+            .result_bitmap = use_2d_buffer ? L"rgb32frame-flip.bmp" : L"rgb32frame.bmp",
             .delta = 5,
+            .todo = use_2d_buffer,
         },
 
         {
@@ -6634,6 +6667,7 @@ static void test_wmv_decoder(void)
 
     MFT_REGISTER_TYPE_INFO output_type = {MFMediaType_Video, MFVideoFormat_NV12};
     MFT_REGISTER_TYPE_INFO input_type = {MFMediaType_Video, MFVideoFormat_WMV1};
+    const struct attribute_desc *sample_attr_desc;
     IMFSample *input_sample, *output_sample;
     MFT_OUTPUT_STREAM_INFO output_info;
     MFT_INPUT_STREAM_INFO input_info;
@@ -6646,10 +6680,16 @@ static void test_wmv_decoder(void)
     ULONG i, j, ret, ref;
     HRESULT hr;
 
+    if (use_2d_buffer && !pMFCreateMediaBufferFromMediaType)
+    {
+        win_skip("MFCreateMediaBufferFromMediaType() is unsupported.\n");
+        return;
+    }
+
     hr = CoInitialize(NULL);
     ok(hr == S_OK, "Failed to initialize, hr %#lx.\n", hr);
 
-    winetest_push_context("wmvdec");
+    winetest_push_context("wmvdec %s", use_2d_buffer ? "2d" : "1d");
 
     if (!has_video_processor)
     {
@@ -6752,6 +6792,12 @@ static void test_wmv_decoder(void)
             check_mft_set_input_type(transform, input_type_desc, S_OK);
         }
 
+        if (transform_tests[j].skip_)
+        {
+            winetest_pop_context();
+            continue;
+        }
+
         check_mft_set_output_type_required(transform, transform_tests[j].output_type_desc);
         check_mft_set_output_type(transform, transform_tests[j].output_type_desc, S_OK);
         check_mft_get_output_current_type_(__LINE__, transform, transform_tests[j].expect_output_type_desc, FALSE, TRUE);
@@ -6794,7 +6840,8 @@ static void test_wmv_decoder(void)
         hr = MFCreateCollection(&output_samples);
         ok(hr == S_OK, "MFCreateCollection returned %#lx\n", hr);
 
-        output_sample = create_sample(NULL, transform_tests[j].expect_output_info->cbSize);
+        sample_attr_desc = use_2d_buffer ? transform_tests[j].output_type_desc : NULL;
+        output_sample = create_sample_(NULL, transform_tests[j].expect_output_info->cbSize, sample_attr_desc);
         for (i = 0; SUCCEEDED(hr = check_mft_process_output(transform, output_sample, &output_status)); i++)
         {
             winetest_push_context("%lu", i);
@@ -6803,7 +6850,7 @@ static void test_wmv_decoder(void)
             ok(hr == S_OK, "AddElement returned %#lx\n", hr);
             ref = IMFSample_Release(output_sample);
             ok(ref == 1, "Release returned %ld\n", ref);
-            output_sample = create_sample(NULL, transform_tests[j].expect_output_info->cbSize);
+            output_sample = create_sample_(NULL, transform_tests[j].expect_output_info->cbSize, sample_attr_desc);
             winetest_pop_context();
         }
         ok(hr == MF_E_TRANSFORM_NEED_MORE_INPUT, "ProcessOutput returned %#lx\n", hr);
@@ -6815,6 +6862,15 @@ static void test_wmv_decoder(void)
                                          transform_tests[j].result_bitmap);
         todo_wine_if(transform_tests[j].todo)
         ok(ret <= transform_tests[j].delta, "got %lu%% diff\n", ret);
+        if (use_2d_buffer)
+        {
+            ret = check_2d_mf_sample_collection(output_samples, transform_tests[j].output_sample_desc_2d
+                    ? transform_tests[j].output_sample_desc_2d : transform_tests[j].output_sample_desc,
+                    transform_tests[j].result_bitmap_2d ? transform_tests[j].result_bitmap_2d
+                    : transform_tests[j].result_bitmap);
+            todo_wine_if(transform_tests[j].todo)
+            ok(ret <= transform_tests[j].delta, "got %lu%% diff\n", ret);
+        }
         IMFCollection_Release(output_samples);
 
         hr = IMFTransform_SetOutputType(transform, 0, NULL, 0);
@@ -10547,7 +10603,8 @@ START_TEST(transform)
     test_h264_decoder(FALSE);
     test_h264_decoder(TRUE);
     test_wmv_encoder();
-    test_wmv_decoder();
+    test_wmv_decoder(FALSE);
+    test_wmv_decoder(TRUE);
     test_wmv_decoder_dmo_input_type();
     test_wmv_decoder_dmo_output_type();
     test_wmv_decoder_dmo_get_size_info();
