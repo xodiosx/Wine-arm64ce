@@ -1373,7 +1373,8 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
 static void window_set_config( struct x11drv_win_data *data, const RECT *new_rect, BOOL above, UINT swp_flags )
 {
     static const UINT fullscreen_mask = (1 << NET_WM_STATE_MAXIMIZED) | (1 << NET_WM_STATE_FULLSCREEN);
-    UINT style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE ), mask = 0, net_wm_state = -1;
+    static const UINT maximized_mask = 1 << NET_WM_STATE_MAXIMIZED;
+    UINT effective_net_wm_state, mask = 0, net_wm_state = -1;
     const RECT *old_rect = &data->pending_state.rect;
     XWindowChanges changes;
     BOOL is_maximized;
@@ -1382,6 +1383,7 @@ static void window_set_config( struct x11drv_win_data *data, const RECT *new_rec
     if (!data->whole_window) return; /* no window, nothing to update */
     if (EqualRect( old_rect, new_rect ) && !above) return; /* rects are the same, no need to be raised, nothing to update */
 
+    effective_net_wm_state = data->net_wm_state_serial ? data->pending_state.net_wm_state : data->current_state.net_wm_state;
     /* Kwin internal maximized state tracking gets bogus if a window configure request is sent to a maximized
      * window, and it loses track of whether the window was maximized state.
      *
@@ -1392,7 +1394,7 @@ static void window_set_config( struct x11drv_win_data *data, const RECT *new_rec
      * the Mutter generated sequence, while achieving the same thing and getting WM_TAKE_FOCUS event when the
      * window is mapped again.
      */
-    is_maximized = (data->net_wm_state_serial ? data->pending_state.net_wm_state : data->current_state.net_wm_state) & fullscreen_mask;
+    is_maximized = effective_net_wm_state & fullscreen_mask;
     if (X11DRV_HasWindowManager( "KWin" ) && data->managed && data->pending_state.wm_state == NormalState && is_maximized)
     {
         if (data->wm_state_serial) return; /* another WM_STATE update is pending, wait for it to complete */
@@ -1404,12 +1406,12 @@ static void window_set_config( struct x11drv_win_data *data, const RECT *new_rec
     }
 
     /* Gamescope has broken _NET_WM_STATE_FULLSCREEN / _NET_WM_STATE_MAXIMIZED support, always allow resizing instead */
-    if (X11DRV_HasWindowManager( "steamcompmgr" )) style &= ~WS_MAXIMIZE;
+    if (X11DRV_HasWindowManager( "steamcompmgr" )) effective_net_wm_state &= ~maximized_mask;
 
     /* resizing a managed maximized window is not allowed */
     if ((old_rect->right - old_rect->left != new_rect->right - new_rect->left ||
          old_rect->bottom - old_rect->top != new_rect->bottom - new_rect->top) &&
-        (!(style & WS_MAXIMIZE) || !data->managed))
+        (!(effective_net_wm_state & maximized_mask) || !data->managed))
     {
         changes.width = new_rect->right - new_rect->left;
         changes.height = new_rect->bottom - new_rect->top;
