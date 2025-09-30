@@ -1434,7 +1434,6 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
 static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL above )
 {
     static const UINT fullscreen_mask = (1 << NET_WM_STATE_MAXIMIZED) | (1 << NET_WM_STATE_FULLSCREEN);
-    static const UINT maximized_mask = 1 << NET_WM_STATE_MAXIMIZED;
     UINT effective_net_wm_state, mask = 0, net_wm_state = -1;
     const RECT *old_rect = &data->pending_state.rect;
     BOOL old_above = data->pending_state.above;
@@ -1485,9 +1484,6 @@ static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL abo
         net_wm_state = data->pending_state.net_wm_state;
         window_set_net_wm_state( data, net_wm_state & ~fullscreen_mask );
     }
-
-    /* Gamescope has broken _NET_WM_STATE_FULLSCREEN / _NET_WM_STATE_MAXIMIZED support, always allow resizing instead */
-    if (X11DRV_HasWindowManager( "steamcompmgr" )) effective_net_wm_state &= ~maximized_mask;
 
     if (old_rect->right - old_rect->left != new_rect->right - new_rect->left ||
         old_rect->bottom - old_rect->top != new_rect->bottom - new_rect->top)
