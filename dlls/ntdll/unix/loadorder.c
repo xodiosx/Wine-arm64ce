@@ -446,7 +446,7 @@ enum loadorder get_load_order( const UNICODE_STRING *nt_name )
         eac_unix_name.Length = eac_unix_name.MaximumLength = wcslen(eac_unix_name.Buffer) * sizeof(WCHAR);
         InitializeObjectAttributes(&attr, &eac_unix_name, 0, NULL, NULL);
 
-        if (!(status = get_nt_and_unix_names(&attr, &eac_unix_name, &unix_path, FILE_OPEN)))
+        if (!(status = get_nt_and_unix_names(&attr, &eac_unix_name, &unix_path, FILE_OPEN, FALSE)))
         {
             free(unix_path);
             free(eac_unix_name.Buffer);

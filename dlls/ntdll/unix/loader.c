@@ -1071,7 +1071,7 @@ static NTSTATUS load_so_dll( void *args )
 
     if (get_load_order( nt_name ) == LO_DISABLED) return STATUS_DLL_NOT_FOUND;
     InitializeObjectAttributes( &attr, nt_name, OBJ_CASE_INSENSITIVE, 0, 0 );
-    if (!get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN ))
+    if (!get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN, FALSE ))
     {
         /* remove .so extension from Windows name */
         len = nt_name->Length / sizeof(WCHAR);
@@ -1821,7 +1821,7 @@ static NTSTATUS open_main_image( WCHAR *image, void **module, SECTION_IMAGE_INFO
 
     init_unicode_string( &nt_name, image );
     InitializeObjectAttributes( &attr, &nt_name, OBJ_CASE_INSENSITIVE, 0, NULL );
-    if (get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN )) return STATUS_DLL_NOT_FOUND;
+    if (get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN, FALSE )) return STATUS_DLL_NOT_FOUND;
 
     status = open_dll_file( unix_name, &attr, &mapping );
     if (!status)
