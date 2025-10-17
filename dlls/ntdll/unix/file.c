@@ -1785,6 +1785,7 @@ static NTSTATUS fd_set_file_info( int fd, HANDLE handle, UINT attr, BOOL force_s
 /* get the stat info and file attributes for a file (by name) */
 static int get_file_info( const char *path, struct stat *st, ULONG *attr )
 {
+    size_t len = strlen( path );
     char *parent_path;
     char attr_data[65];
     int attr_len, ret;
@@ -1799,7 +1800,7 @@ static int get_file_info( const char *path, struct stat *st, ULONG *attr )
         /* is a symbolic link and a directory, consider these "reparse points" */
         if (S_ISDIR( st->st_mode )) *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
     }
-    else if (S_ISDIR( st->st_mode ) && (parent_path = malloc( strlen(path) + 4 )))
+    else if (S_ISDIR( st->st_mode ) && (parent_path = malloc( len + 4 )))
     {
         struct stat parent_st;
 
@@ -1813,6 +1814,9 @@ static int get_file_info( const char *path, struct stat *st, ULONG *attr )
         free( parent_path );
     }
     *attr |= get_file_attributes( st );
+
+    if (path[len - 1] == '?')
+        *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
 
     attr_len = xattr_get( path, SAMBA_XATTR_DOS_ATTRIB, attr_data, sizeof(attr_data)-1 );
     if (attr_len != -1)
