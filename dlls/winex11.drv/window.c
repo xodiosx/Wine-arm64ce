@@ -3510,6 +3510,13 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     {
         release_win_data( data );
         sync_gl_drawable( hwnd, FALSE );
+        /* Recreate the gl_drawable of the top-level window now that we know there are child windows
+         * that might need clipping support because of the child window visibility change */
+        if ((old_style ^ new_style) & WS_VISIBLE)
+        {
+            HWND toplevel = NtUserGetAncestor( hwnd, GA_ROOT );
+            if (toplevel != hwnd) sync_gl_drawable( toplevel, TRUE );
+        }
         return;
     }
 
