@@ -1917,15 +1917,24 @@ static struct
 }
 syscall_nr_translation[] =
 {
+    {0x10, ~0u, NtQueryObject},
     {0x19, ~0u, NtQueryInformationProcess},
+    {0x1c, ~0u, NtSetInformationProcess},
+    {0x25, ~0u, NtQueryInformationThread},
+    {0x0d, ~0u, NtSetInformationThread},
     {0x36, ~0u, NtQuerySystemInformation},
     {0xf3, ~0u, NtGetContextThread},
+    {0x33, ~0u, NtOpenFile},
     {0x55, ~0u, NtCreateFile},
+    {0x4a, ~0u, NtCreateSection},
+    {0x28, ~0u, NtMapViewOfSection},
+    {0x2a, ~0u, NtUnmapViewOfSection},
     {0x08, ~0u, NtWriteFile},
     {0x06, ~0u, NtReadFile},
     {0x0f, ~0u, NtClose},
     {0x23, ~0u, NtQueryVirtualMemory},
     {0x50, ~0u, NtProtectVirtualMemory},
+    {0xa6, ~0u, NtCreateDebugObject},
 };
 
 static void sigsys_handler_rdr2( int signal, siginfo_t *siginfo, void *sigcontext )
@@ -2045,7 +2054,7 @@ static void install_bpf(struct sigaction *sig_act)
     {
         const char *sgi = getenv("SteamGameId");
         if (sgi && (!strcmp(sgi, "1174180") || !strcmp(sgi, "1404210") || !strcmp(sgi, "1418100") || !strcmp(sgi, "2767030")
-                    || !strcmp(sgi, "2853730")))
+                    || !strcmp(sgi, "2853730") || !strcmp( sgi, "298110" )))
         {
             /* Use specific signal handler. */
             sig_act->sa_sigaction = sigsys_handler_rdr2;
