@@ -217,7 +217,6 @@ jobs:
           --without-wayland \
           --without-xinerama \
           --without-xxf86vm \
-          --without-osmesa \
           --enable-wineandroid_drv=no
           make -j$(nproc)
           #make install -j$(nproc) DESTDIR=compiled-files
@@ -280,7 +279,6 @@ jobs:
           --without-wayland \
           --without-xinerama \
           --without-xxf86vm \
-          --without-osmesa \
           --enable-wineandroid_drv=no
           make -j$(nproc)
           make install -j$(nproc) DESTDIR=compiled-files
