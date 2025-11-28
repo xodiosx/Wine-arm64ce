@@ -285,7 +285,7 @@ jobs:
       - name: Uploading Wine files
         uses: actions/upload-artifact@v4
         with:
-          name: proton-termux
+          name: wine-build
           path: compiled-files/
 
       - name: Uploading Logs
