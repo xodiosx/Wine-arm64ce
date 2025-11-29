@@ -17,15 +17,11 @@ jobs:
           sudo apt-get update
           sudo apt install -y \
           build-essential \
-          ninja \
           lzma \
           flex \
           bison \
           quilt \
           unzip \
-          gettext \
-          icoutils \
-          sharutils \
           pkg-config
           sudo apt-get purge -y llvm-18 clang-18
       - name: Downloading and preparing Termux deps
