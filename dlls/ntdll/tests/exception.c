@@ -6027,6 +6027,68 @@ static void test_direct_syscalls(void)
     CloseHandle(event);
 }
 
+static void test_backtrace_without_runtime_function_func(void)
+{
+    unsigned int count;
+    void *addrs[256];
+
+    memset( addrs, 0xcc, sizeof(addrs) );
+    count = RtlCaptureStackBackTrace( 0, 256, addrs, NULL );
+    ok( count == 2, "got %d.\n", count );
+    ok( (char *)addrs[1] == (char *)code_mem + 22, "got %p, code_mem %p.\n", addrs[1], code_mem );
+    ok( addrs[2] == (void *)0xcccccccccccccccc, "got %p.\n", addrs[2]);
+
+    memset( addrs, 0xcc, sizeof(addrs) );
+    count = RtlWalkFrameChain( addrs, 256, 0 );
+    ok( count == 2, "got %d.\n", count );
+    ok( (char *)addrs[1] == (char *)code_mem + 22, "got %p, code_mem %p.\n", addrs[1], code_mem );
+    ok( addrs[2] == (void *)0xcccccccccccccccc, "got %p.\n", addrs[2]);
+}
+
+static RUNTIME_FUNCTION * CALLBACK test_backtrace_without_runtime_function_callback( DWORD_PTR pc, void *context )
+{
+    ++*(unsigned int *)context;
+    return NULL;
+}
+
+static void test_backtrace_without_runtime_function(void)
+{
+    static BYTE test_code[] =
+    {
+        0xb8, 0xef, 0xbe, 0xad, 0xde,               /* mov    $0xdeadbeef,%eax */
+        0x50,                                       /* pushq *rax */
+        0x50,                                       /* pushq *rax */
+        0x50,                                       /* pushq *rax */
+        0x50,                                       /* pushq *rax */
+        0x50,                                       /* pushq *rax */
+        /* test_backtrace_function offset 12  */
+        0x48, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0,         /* movabs test_backtrace_without_runtime_function_func, %rax */
+        0xff, 0xd0,                                 /* callq *%rax */
+        /* offset 22 */
+        0x48, 0x83, 0xc4, 0x28,                     /* addq $0x28,%rsp */
+        0xc3,                                       /* ret */
+    };
+    void (WINAPI *func)(void) = code_mem;
+    ULONG_PTR table;
+    unsigned int count;
+    BOOL ret;
+
+    *(void **)((char *)test_code + 12) = test_backtrace_without_runtime_function_func;
+    memcpy(code_mem, test_code, sizeof(test_code));
+    func = code_mem;
+
+    func();
+
+    table = (ULONG_PTR)code_mem | 0x3;
+    count = 0;
+    ret = RtlInstallFunctionTableCallback( table, (ULONG_PTR)code_mem, 2048, &test_backtrace_without_runtime_function_callback, (PVOID*)&count, NULL );
+    ok( ret, "RtlInstallFunctionTableCallback failed.\n" );
+    func();
+    todo_wine ok( !count, "got %d.\n", count );
+    ret = pRtlDeleteFunctionTable( (PRUNTIME_FUNCTION)table );
+    ok( ret, "RtlDeleteFunctionTable failed.\n" );
+}
+
 #elif defined(__arm__)
 
 static void test_thread_context(void)
@@ -12282,6 +12344,7 @@ START_TEST(exception)
     test_instrumentation_callback();
     test_direct_syscalls();
     test_single_step_address();
+    test_backtrace_without_runtime_function();
 
 #elif defined(__aarch64__)
 
