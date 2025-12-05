@@ -4067,6 +4067,69 @@ static void test_user_procs(void)
     ok( !memcmp( ptrs, ptr_A, size_A ), "pointers changed by init\n" );
 }
 
+static ULONG_PTR rotate_bits_right(ULONG_PTR v, ULONG count)
+{
+    static const unsigned int bits = sizeof (v) * 8;
+
+    count %= bits;
+    return (v >> count) | (v << (bits - count));
+}
+
+static ULONG_PTR rotate_bits_left(ULONG_PTR v, ULONG count)
+{
+    static const unsigned int bits = sizeof (v) * 8;
+
+    count %= bits;
+    return (v << count) | (v >> (bits - count));
+}
+
+static ULONG process_cookie;
+
+static void *encode_pointer( void *ptr )
+{
+    DWORD_PTR ptrval = (DWORD_PTR) ptr;
+    return (void *)rotate_bits_right( ptrval ^ process_cookie, process_cookie );
+}
+
+static void *decode_pointer( void *ptr )
+{
+    DWORD_PTR ptrval = (DWORD_PTR) ptr;
+    return (void *)(rotate_bits_left( ptrval, process_cookie ) ^ process_cookie );
+}
+
+static void test_pointer_encoding(void)
+{
+    void *v, *expected;
+
+    if (NtQueryInformationProcess( GetCurrentProcess(), ProcessCookie, &process_cookie, sizeof(process_cookie), NULL ))
+    {
+        win_skip( "Could not get process cookie, skipping tests.\n" );
+        return;
+    }
+    ok( process_cookie, "got 0.\n" );
+
+    v = RtlEncodePointer( NULL );
+    expected = encode_pointer( NULL );
+    ok( v == expected, "got %p, expected %p.\n", v, expected );
+    v = RtlDecodePointer( v );
+    expected = decode_pointer( expected );
+    ok( v == expected, "got %p, expected %p.\n", v, expected );
+
+    v = RtlEncodePointer( (void *)(ULONG_PTR)1 );
+    expected = encode_pointer( (void *)(ULONG_PTR)1 );
+    ok( v == expected, "got %p, expected %p.\n", v, expected );
+    v = RtlDecodePointer( v );
+    expected = decode_pointer( expected );
+    ok( v == expected, "got %p, expected %p.\n", v, expected );
+
+    v = RtlEncodePointer( (void *)(ULONG_PTR)0xdeadbeeffeedcafe );
+    expected = encode_pointer( (void *)(ULONG_PTR)0xdeadbeeffeedcafe );
+    ok( v == expected, "got %p, expected %p.\n", v, expected );
+    v = RtlDecodePointer( v );
+    expected = decode_pointer( expected );
+    ok( v == expected, "got %p, expected %p.\n", v, expected );
+}
+
 START_TEST(rtl)
 {
     InitFunctionPtrs();
@@ -4119,4 +4182,5 @@ START_TEST(rtl)
     test_RtlConvertDeviceFamilyInfoToString();
     test_rb_tree();
     test_user_procs();
+    test_pointer_encoding();
 }
