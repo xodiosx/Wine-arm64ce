@@ -629,10 +629,11 @@ static LRESULT WINAPI MCIWndProc(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lPa
                 mwi->lasterror = mciSendCommandW(mwi->mci, MCI_WINDOW,
                                                  MCI_DGV_WINDOW_HWND,
                                                  (DWORD_PTR)&mci_window);
-
                 if (mwi->lasterror)
-                    TRACE("Failed to pass our hwnd to MCI. When playing an audio file, this likely isn't an issue.\n");
-                mwi->lasterror = 0;
+                {
+                    MCIWND_notify_error(mwi);
+                    goto end_of_mci_open;
+                }
             }
 
             if (SendMessageW(hWnd, MCIWNDM_GET_DEST, 0, (LPARAM)&rc) == 0)
