@@ -1606,11 +1606,10 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
         break;
 
     case ProcessCookie:
-        FIXME( "ProcessCookie (%p,%p,0x%08x,%p) stub\n", handle, info, (int)size, ret_len );
         if (handle == NtCurrentProcess())
         {
             len = sizeof(ULONG);
-            if (size == len) *(ULONG *)info = 0;
+            if (size == len) *(ULONG *)info = process_cookie;
             else ret = STATUS_INFO_LENGTH_MISMATCH;
         }
         else ret = STATUS_INVALID_PARAMETER;

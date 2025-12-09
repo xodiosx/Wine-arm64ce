@@ -100,6 +100,7 @@ unsigned int supported_machines_count = 0;
 USHORT supported_machines[8] = { 0 };
 USHORT native_machine = 0;
 BOOL process_exiting = FALSE;
+ULONG process_cookie;
 
 timeout_t server_start_time = 0;  /* time of server startup */
 
@@ -1672,6 +1673,8 @@ size_t server_init_process(void)
     }
 
     set_thread_id( NtCurrentTeb(), pid, tid );
+    process_cookie = 0xdeadbeef;
+    get_random( &process_cookie, sizeof(process_cookie) );
 
     for (i = 0; i < supported_machines_count; i++)
         if (supported_machines[i] == current_machine) return info_size;

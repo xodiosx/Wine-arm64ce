@@ -187,6 +187,7 @@ extern HANDLE keyed_event;
 extern timeout_t server_start_time;
 extern sigset_t server_block_set;
 extern struct _KUSER_SHARED_DATA *user_shared_data;
+extern ULONG process_cookie;
 extern SYSTEM_CPU_INFORMATION cpu_info;
 #ifdef __i386__
 extern struct ldt_copy __wine_ldt_copy;
@@ -281,6 +282,7 @@ extern NTSTATUS get_thread_context( HANDLE handle, void *context, BOOL *self, US
 extern unsigned int alloc_object_attributes( const OBJECT_ATTRIBUTES *attr, struct object_attributes **ret,
                                              data_size_t *ret_len );
 extern NTSTATUS system_time_precise( void *args );
+extern void get_random( void *buf, ULONG len );
 
 extern void *steamclient_handle_fault( LPCVOID addr, DWORD err );
 extern void *anon_mmap_fixed( void *start, size_t size, int prot, int flags );
