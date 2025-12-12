@@ -1090,6 +1090,11 @@ static NTSTATUS __fsync_wait_objects( DWORD count, const HANDLE *handles,
                             return STATUS_ABANDONED_WAIT_0 + i;
                         }
 
+                        if (fsync_yield_to_waiters && waited && !mutex->last_pid)
+                        {
+                            /* Someone else grabbed the mutex while we are waiting, re-register us as waiter. */
+                            __sync_val_compare_and_swap( &mutex->last_pid, 0, current_pid );
+                        }
                         futex_vector_set( &futexes[i], &mutex->tid, tid );
                         break;
                     }
