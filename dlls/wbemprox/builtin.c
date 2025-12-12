@@ -489,7 +489,7 @@ static const struct column col_systemenclosure[] =
     { L"LockPresent",  CIM_BOOLEAN },
     { L"Manufacturer", CIM_STRING|COL_FLAG_DYNAMIC },
     { L"Name",         CIM_STRING },
-    { L"Tag",          CIM_STRING },
+    { L"Tag",          CIM_STRING|COL_FLAG_KEY },
     { L"SerialNumber", CIM_STRING|COL_FLAG_DYNAMIC },
 };
 static const struct column col_systemsecurity[] =
