@@ -58,6 +58,7 @@ struct buffer
         unsigned int locks;
         MF2DBuffer_LockFlags lock_flags;
         p_copy_image_func copy_image;
+        BOOL performance_hack_enabled;
     } _2d;
     struct
     {
@@ -309,18 +310,20 @@ static HRESULT WINAPI memory_1d_2d_buffer_Lock(IMFMediaBuffer *iface, BYTE **dat
 
     EnterCriticalSection(&buffer->cs);
 
-    if (!buffer->_2d.linear_buffer && buffer->_2d.width == buffer->_2d.pitch
-            && (sgi = getenv("SteamGameId")) && (!strcmp(sgi, "418370") || !strcmp(sgi, "287700")))
+    if (buffer->_2d.performance_hack_enabled
+            || (!buffer->_2d.linear_buffer && buffer->_2d.width == buffer->_2d.pitch
+            && (sgi = getenv("SteamGameId")) && (!strcmp(sgi, "418370") || !strcmp(sgi, "287700") || !strcmp(sgi, "462780"))))
     {
         BYTE *scanline;
         LONG pitch;
 
         /* width and pitch are the same, so this avoids a potentially expensive copy
          * this is a HACK as it does not match Windows behaviour (Windows will copy the buffer)
-         * this fixes performance regressions for Resident Evil 7 Biohazard (418370) and
-         * Metal Gear Solid V (287700).
+         * this fixes performance regressions for Resident Evil 7 Biohazard (418370),
+         * Metal Gear Solid V (287700) and Darksiders Warmastered Edition (462780).
          */
         hr = memory_2d_buffer_lock(buffer, &scanline, &pitch, data, NULL);
+        buffer->_2d.performance_hack_enabled = TRUE;
     }
     else if (!buffer->_2d.linear_buffer && buffer->_2d.locks)
     {
@@ -365,14 +368,12 @@ static HRESULT WINAPI memory_1d_2d_buffer_Unlock(IMFMediaBuffer *iface)
 {
     struct buffer *buffer = impl_from_IMFMediaBuffer(iface);
     HRESULT hr = S_OK;
-    const char *sgi;
 
     TRACE("%p.\n", iface);
 
     EnterCriticalSection(&buffer->cs);
 
-    if (!buffer->_2d.linear_buffer && buffer->_2d.width == buffer->_2d.pitch
-            && (sgi = getenv("SteamGameId")) && (!strcmp(sgi, "418370") || !strcmp(sgi, "287700")))
+    if (buffer->_2d.performance_hack_enabled)
     {
         if (buffer->_2d.locks)
             --buffer->_2d.locks;
