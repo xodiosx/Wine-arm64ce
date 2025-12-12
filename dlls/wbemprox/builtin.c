@@ -490,6 +490,7 @@ static const struct column col_systemenclosure[] =
     { L"Manufacturer", CIM_STRING|COL_FLAG_DYNAMIC },
     { L"Name",         CIM_STRING },
     { L"Tag",          CIM_STRING },
+    { L"SerialNumber", CIM_STRING|COL_FLAG_DYNAMIC },
 };
 static const struct column col_systemsecurity[] =
 {
@@ -1050,6 +1051,7 @@ struct record_systemenclosure
     const WCHAR        *manufacturer;
     const WCHAR        *name;
     const WCHAR        *tag;
+    const WCHAR        *serial_number;
 };
 struct record_videocontroller
 {
@@ -4347,6 +4349,13 @@ done:
     return ret;
 }
 
+static WCHAR *get_systemenclosure_serialnumber( const char *buf, UINT len )
+{
+    WCHAR *ret = get_smbios_string( SMBIOS_TYPE_SYSTEM, 0, offsetof(struct smbios_system, serial), buf, len );
+    if (!ret) return wcsdup( L"0" );
+    return ret;
+}
+
 static enum fill_status fill_systemenclosure( struct table *table, const struct expr *cond )
 {
     struct record_systemenclosure *rec;
@@ -4368,6 +4377,7 @@ static enum fill_status fill_systemenclosure( struct table *table, const struct 
     rec->manufacturer = get_systemenclosure_manufacturer( buf, len );
     rec->name         = L"System Enclosure";
     rec->tag          = L"System Enclosure 0";
+    rec->serial_number = get_systemenclosure_serialnumber( buf, len );
     if (!match_row( table, row, cond, &status )) free_row_values( table, row );
     else row++;
 
