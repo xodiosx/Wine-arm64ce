@@ -77,7 +77,7 @@
 #else
   extern char **environ;
 #endif
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && ! defined(__TERMUX__)
 # include <jni.h>
 #endif
 
@@ -2408,7 +2408,7 @@ static void start_main_thread(void)
     server_init_process_done();
 }
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__) && ! defined(__TERMUX__)
 
 #ifndef WINE_JAVA_CLASS
 #define WINE_JAVA_CLASS "org/winehq/wine/WineActivity"
@@ -2604,7 +2604,7 @@ static void apple_main_thread(void)
 #endif  /* __APPLE__ */
 
 
-#if defined(__linux__) && !defined(__ANDROID__) && (defined(__i386__) || defined(__arm__))
+#if (defined(__linux__) && !defined(__ANDROID__) && !defined(__TERMUX__)) || (defined(__i386__) || defined(__arm__))
 
 static void check_vmsplit( void *stack )
 {
