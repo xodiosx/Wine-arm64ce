@@ -1269,6 +1269,7 @@ static void start_xalia_process(void)
 void manage_desktop( WCHAR *arg )
 {
     HDESK desktop = 0;
+    static int no_duplicate_explorer = -1;
     GUID guid;
     MSG msg;
     HWND hwnd;
@@ -1333,6 +1334,12 @@ void manage_desktop( WCHAR *arg )
             ExitProcess( 1 );
         }
         SetThreadDesktop( desktop );
+    }
+    else {
+        no_duplicate_explorer = getenv("WINE_NO_DUPLICATE_EXPLORER") && atoi(getenv("WINE_NO_DUPLICATE_EXPLORER"));
+
+        if (no_duplicate_explorer == 1)
+            ExitProcess( 0 );
     }
 
     /* the desktop process should always have an admin token */
