@@ -1,3 +1,6 @@
+Used patches from https://github.com/termux/termux-packages/tree/master/x11-packages/hangover-wine
+With some commits from https://github.com/Pipetto-crypto/wine/tree/proton-9.0-arm64ec and https://github.com/cassia-org/wine
+
 ## INTRODUCTION
 
 Wine is a program which allows running Microsoft Windows programs
