@@ -56,6 +56,34 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(fsync);
 
+#ifdef __ANDROID__
+static int shm_open(const char *name, int oflag, mode_t mode) {
+    char *tmpdir;
+    char *fname;
+
+    tmpdir = getenv("TMPDIR");
+
+    if (!tmpdir) {
+        tmpdir = "/tmp";
+    }
+    asprintf(&fname, "%s/%s", tmpdir, name);
+    return open(fname, oflag, mode);
+}
+
+static int shm_unlink(const char *name) {
+    char *tmpdir;
+    char *fname;
+
+    tmpdir = getenv("TMPDIR");
+
+    if (!tmpdir) {
+        tmpdir = "/tmp";
+    }
+    asprintf(&fname, "%s/%s", tmpdir, name);
+    return unlink(fname);
+}
+#endif
+
 #include "pshpack4.h"
 #include "poppack.h"
 
@@ -165,7 +193,7 @@ static inline int futex_wake( int *addr, int val )
 
 int do_fsync(void)
 {
-#ifdef __linux__
+#if defined(__linux__) && !defined(__ANDROID__)
     static int do_fsync_cached = -1;
 
     if (do_fsync_cached == -1)
