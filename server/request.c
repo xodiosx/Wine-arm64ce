@@ -668,11 +668,11 @@ static char *create_server_dir( int force )
 
     /* create the base directory if needed */
 
-#ifdef __ANDROID__  /* there's no /tmp dir on Android */
+#if defined(__ANDROID__) && !defined(__TERMUX__)  /* there's no /tmp dir on Android */
     if (asprintf( &base_dir, "%s/.wineserver", config_dir ) == -1)
         fatal_error( "out of memory\n" );
 #else
-    if (asprintf( &base_dir, "/tmp/.wine-%u", getuid() ) == -1)
+    if (asprintf( &base_dir, "/data/data/com.termux/files/usr/tmp/.wine-%u", getuid() ) == -1)
         fatal_error( "out of memory\n" );
 #endif
     create_dir( base_dir, &st2 );
