@@ -265,6 +265,9 @@ static int pulse_poll_func(struct pollfd *ufds, unsigned long nfds, int timeout,
 
 static NTSTATUS pulse_process_attach(void *args)
 {
+#ifdef __ANDROID__
+    if (1)
+#else
     pthread_mutexattr_t attr;
 
     pthread_mutexattr_init(&attr);
@@ -272,6 +275,7 @@ static NTSTATUS pulse_process_attach(void *args)
     pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
 
     if (pthread_mutex_init(&pulse_mutex, &attr) != 0)
+#endif
         pthread_mutex_init(&pulse_mutex, NULL);
 
 #ifdef _WIN64
