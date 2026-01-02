@@ -669,8 +669,13 @@ BOOLEAN WINAPI RtlIsProcessorFeaturePresent( UINT feature )
 
 static void suspend_remote_breakin( HANDLE thread )
 {
-    ULONG count;
-    NTSTATUS status = pWow64SuspendLocalThread( thread, &count );
+    ULONG count = 0;
+    NTSTATUS status = 0;
+    if (pWow64SuspendLocalThread)
+        status = pWow64SuspendLocalThread( thread, &count );
+    else
+        status = NtSuspendThread( thread, &count );
+
     if (status >= 0) status = count;
     NtTerminateThread( GetCurrentThread(),  status );
 }
