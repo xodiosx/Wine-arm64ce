@@ -36,7 +36,7 @@ struct AVBSFInternal {
 /* From FFmpeg */
 int ff_bsf_get_packet(AVBSFContext *ctx, AVPacket **pkt)
 {
-    AVBSFInternal *bsfi = ctx->internal;
+    struct AVBSFInternal *bsfi = ctx->priv_data;
     AVPacket *tmp_pkt;
 
     if (bsfi->eof)
@@ -77,7 +77,7 @@ static enum AVCodecID reverse_codec_id(enum AVCodecID codec_id)
 
 static int init(AVBSFContext *ctx)
 {
-    if (ctx->par_in->channels <= 0 || ctx->par_in->sample_rate <= 0)
+    if (ctx->par_in->ch_layout.nb_channels <= 0 || ctx->par_in->sample_rate <= 0)
         return AVERROR(EINVAL);
     if (ctx->par_in->bits_per_coded_sample % 8u)
         return AVERROR(EINVAL);
@@ -149,8 +149,8 @@ static const enum AVCodecID codec_ids[] = {
 
 const AVBitStreamFilter ff_pcm_byte_order_reverse_bsf = {
     .name           = "pcm_byte_order_reverse",
-    .filter         = byte_order_reverse_filter,
-    .init           = init,
+    //.filter         = byte_order_reverse_filter,
+    //.init           = init,
     .codec_ids      = codec_ids,
 };
 
