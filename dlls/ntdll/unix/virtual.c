@@ -87,6 +87,21 @@
 #include "unix_private.h"
 #include "wine/debug.h"
 
+#ifdef __ANDROID__
+static int shm_open(const char *name, int oflag, mode_t mode) {
+    char *tmpdir;
+    char *fname;
+
+    tmpdir = getenv("TMPDIR");
+
+    if (!tmpdir) {
+        tmpdir = "/tmp";
+    }
+    asprintf(&fname, "%s/%s", tmpdir, name);
+    return open(fname, oflag, mode);
+}
+#endif
+
 WINE_DEFAULT_DEBUG_CHANNEL(virtual);
 WINE_DECLARE_DEBUG_CHANNEL(module);
 WINE_DECLARE_DEBUG_CHANNEL(virtual_ranges);
