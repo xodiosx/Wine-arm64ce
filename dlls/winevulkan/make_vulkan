@@ -2294,6 +2294,9 @@ class VkStruct(Sequence):
             if self.name == m.type:
                 continue
 
+            if m.is_generic_handle() and not check_extensions:
+                continue
+
             if m.name == "pNext":
                 # pNext is a pointer, so it always needs conversion
                 if conv and direction == Direction.INPUT:
@@ -2572,6 +2575,9 @@ class StructConversionFunction(object):
                         continue
                     if m.name == "pNext":
                         copy_body += ident + "out_ext->pNext = NULL;\n"
+                        continue
+                    if m.is_generic_handle():
+                        copy_body += f"            out_ext->{m.name} = in_ext->{m.name};\n"
                         continue
                     copy_body += ident + m.copy("in_ext->", "out_ext->", self.direction, self.conv, Unwrap.HOST, self.copy)
 
