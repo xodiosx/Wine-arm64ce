@@ -64,7 +64,7 @@ from enum import Enum
 LOGGER = logging.Logger("vulkan")
 LOGGER.addHandler(logging.StreamHandler())
 
-VK_XML_VERSION = "1.4.335"
+VK_XML_VERSION = "1.4.339"
 WINE_VK_VERSION = (1, 4)
 
 # Filenames to create.
@@ -1119,38 +1119,27 @@ class VkFunctionPointer(object):
             return None
 
         members = []
-        begin = None
 
-        for t in funcpointer.findall("type"):
-            # General form:
-            # <type>void</type>*       pUserData,
-            # Parsing of the tail (anything past </type>) is tricky since there
-            # can be other data on the next line like: const <type>int</type>..
-
-            const = True if begin and "const" in begin else False
-            _type = t.text
-            lines = t.tail.split(",\n")
-            if lines[0][0] == "*":
+        for t in funcpointer.findall("param"):
+            const = t.text == "const "
+            type_element = t.find('type')
+            _type = type_element.text
+            name = t.find('name').text
+            if type_element.tail[0] == "*":
                 pointer = "*"
-                name = lines[0][1:].strip()
             else:
                 pointer = None
-                name = lines[0].strip()
 
             # Filter out ); if it is contained.
             name = name.partition(");")[0]
 
-            # If tail encompasses multiple lines, assign the second line to begin
-            # for the next line.
-            try:
-                begin = lines[1].strip()
-            except IndexError:
-                begin = None
-
             members.append(VkMember(const=const, _type=_type, pointer=pointer, name=name))
 
-        _type = funcpointer.text
-        name = funcpointer.find("name").text
+        proto = funcpointer.find("proto")
+        type_element = proto.find("type")
+        _type = "typedef {0}{1} (VKAPI_PTR *".format(type_element.text,
+                                                     type_element.tail.strip())
+        name = proto.find("name").text
         if "requires" in funcpointer.attrib:
             forward_decls = funcpointer.attrib.get("requires").split(",")
         else:
@@ -3914,8 +3903,11 @@ class VkRegistry(object):
             # Name is in general within a name tag else it is an optional
             # attribute on the type tag.
             name_elem = t.find("name")
+            proto_elm = t.find("proto")
             if name_elem is not None:
                 type_info["name"] = name_elem.text
+            elif proto_elm is not None:
+                type_info["name"] = proto_elm.find("name").text
             else:
                 type_info["name"] = t.attrib.get("name", None)
 
