@@ -1340,14 +1340,14 @@ static void test_info_classes(void)
         case FileFullDirectoryInformation:
         {
             const FILE_FULL_DIRECTORY_INFORMATION *info = (void *)buffer;
-            todo_wine ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
+            ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
             check_string( info->FileName, info->FileNameLength, L"file" );
             break;
         }
         case FileBothDirectoryInformation:
         {
             const FILE_BOTH_DIRECTORY_INFORMATION *info = (void *)buffer;
-            todo_wine ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
+            ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
             check_string( info->ShortName, info->ShortNameLength, L"" );
             check_string( info->FileName, info->FileNameLength, L"file" );
             break;
@@ -1355,7 +1355,7 @@ static void test_info_classes(void)
         case FileIdBothDirectoryInformation:
         {
             const FILE_ID_BOTH_DIRECTORY_INFORMATION *info = (void *)buffer;
-            todo_wine ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
+            ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
             ok( !memcmp( &info->FileId, &id_info.FileId, sizeof( info->FileId )),
                     "expected ID %#I64x, got %#I64x\n", *(ULONGLONG *)&id_info.FileId, info->FileId.QuadPart);
             check_string( info->ShortName, info->ShortNameLength, L"" );
@@ -1365,7 +1365,7 @@ static void test_info_classes(void)
         case FileIdFullDirectoryInformation:
         {
             const FILE_ID_FULL_DIRECTORY_INFORMATION *info = (void *)buffer;
-            todo_wine ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
+            ok( info->EaSize == 0xbeef, "got %#lx\n", info->EaSize );
             ok( !memcmp( &info->FileId, &id_info.FileId, sizeof( info->FileId )),
                     "expected ID %#I64x, got %#I64x\n", *(ULONGLONG *)&id_info.FileId, info->FileId.QuadPart);
             check_string( info->FileName, info->FileNameLength, L"file" );
