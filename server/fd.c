@@ -394,9 +394,8 @@ static void set_user_shared_data_time(void)
     {
         now = time( NULL );
         tm = gmtime( &now );
+        tm->tm_isdst = -1;
         timezone_bias = mktime( tm ) - now;
-        tm = localtime( &now );
-        if (tm->tm_isdst) timezone_bias -= 3600;
         timezone_bias *= TICKS_PER_SEC;
 
         atomic_store_long(&user_shared_data->TimeZoneBias.High2Time, timezone_bias >> 32);
