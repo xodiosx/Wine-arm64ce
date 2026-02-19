@@ -2997,7 +2997,7 @@ static void get_timezone_info( RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi )
     static RTL_DYNAMIC_TIME_ZONE_INFORMATION cached_tzi;
     static int current_year = -1, current_bias = 65535;
     RTL_DYNAMIC_TIME_ZONE_INFORMATION reg_tzi;
-    struct tm *tm;
+    struct tm *tm, tm1, tm2;
     time_t year_start, year_end, tmp, dlt = 0, std = 0;
     int is_dst, bias;
     BOOL inverted_dst;
@@ -3008,12 +3008,13 @@ static void get_timezone_info( RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi )
     tm = gmtime(&year_start);
     bias = (LONG)(mktime(tm) - year_start) / 60;
 
-    tm = gmtime(&year_start);
-    tm->tm_isdst = 1;
-    inverted_dst = (mktime(tm) - year_start) / 60 - bias > 0;
+    tm = localtime(&year_start);
+    tm1 = tm2 = *tm;
+    tm1.tm_isdst = 0;
+    tm2.tm_isdst = 1;
+    inverted_dst = mktime(&tm1) < mktime(&tm2);
     if (inverted_dst) bias += 60;
 
-    tm = localtime(&year_start);
     if (current_year == tm->tm_year && current_bias == bias)
     {
         *tzi = cached_tzi;
