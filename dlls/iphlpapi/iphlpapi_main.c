@@ -610,6 +610,8 @@ DWORD WINAPI GetAdaptersInfo( IP_ADAPTER_INFO *info, ULONG *size )
     IP_ADDR_STRING *extra_ip_addrs, *cursor;
     IN_ADDR gw, mask;
 
+    static int bypass = -1;
+
     TRACE( "info %p, size %p\n", info, size );
     if (!size) return ERROR_INVALID_PARAMETER;
 
@@ -1182,7 +1184,7 @@ static DWORD dns_info_alloc( IP_ADAPTER_ADDRESSES *aa, ULONG family, ULONG flags
     WCHAR name[MAX_ADAPTER_NAME_LENGTH + 1];
     DNS_ADDR_ARRAY *servers;
     WCHAR *search;
-
+	
     while (aa)
     {
         MultiByteToWideChar( CP_ACP, 0, aa->AdapterName, -1, name, ARRAY_SIZE(name) );
@@ -1244,7 +1246,7 @@ static DWORD dns_info_alloc( IP_ADAPTER_ADDRESSES *aa, ULONG family, ULONG flags
 
         aa = aa->Next;
     }
-
+	
     return ERROR_SUCCESS;
 }
 
@@ -1306,14 +1308,17 @@ static DWORD adapters_addresses_alloc( ULONG family, ULONG flags, IP_ADAPTER_ADD
     if (!(flags & GAA_FLAG_SKIP_UNICAST))
     {
         err = call_families( unicast_addresses_alloc, aa, family, flags );
-        if (err) goto err;
+        if (err)
+        	goto err;
     }
 
     err = call_families( gateway_and_prefix_addresses_alloc, aa, family, flags );
-    if (err) goto err;
+    if (err)
+    	goto err;
 
     err = dns_info_alloc( aa, family, flags );
-    if (err) goto err;
+    if (err)
+    	goto err;
 
 err:
     NsiFreeTable( luids, rw, dyn, stat );
@@ -2709,6 +2714,7 @@ DWORD WINAPI GetNetworkParams( FIXED_INFO *info, ULONG *size )
 
     if (get_dns_server_list( NULL, NULL, NULL, &dns_size ) == ERROR_BUFFER_OVERFLOW)
         needed += dns_size - sizeof(IP_ADDR_STRING);
+       
     if (!info || *size < needed)
     {
         *size = needed;
@@ -2721,8 +2727,8 @@ DWORD WINAPI GetNetworkParams( FIXED_INFO *info, ULONG *size )
     GetComputerNameExA( ComputerNameDnsHostname, info->HostName, &needed );
     needed = sizeof(info->DomainName);
     GetComputerNameExA( ComputerNameDnsDomain, info->DomainName, &needed );
-    get_dns_server_list( NULL, &info->DnsServerList, (IP_ADDR_STRING *)(info + 1), &dns_size );
-    info->CurrentDnsServer = &info->DnsServerList;
+	get_dns_server_list( NULL, &info->DnsServerList, (IP_ADDR_STRING *)(info + 1), &dns_size );
+	info->CurrentDnsServer = &info->DnsServerList;
     info->NodeType = HYBRID_NODETYPE;
     err = RegOpenKeyExA( HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Services\\VxD\\MSTCP",
                          0, KEY_READ, &key );
@@ -2801,8 +2807,8 @@ DWORD WINAPI GetPerAdapterInfo( ULONG index, IP_PER_ADAPTER_INFO *info, ULONG *s
     }
 
     memset( info, 0, needed );
-    get_dns_server_list( &luid, &info->DnsServerList, (IP_ADDR_STRING *)(info + 1), &dns_size );
-    info->CurrentDnsServer = &info->DnsServerList;
+	get_dns_server_list( &luid, &info->DnsServerList, (IP_ADDR_STRING *)(info + 1), &dns_size );
+	info->CurrentDnsServer = &info->DnsServerList;
 
     /* FIXME Autoconfig: get unicast addresses and compare to 169.254.x.x */
     return ERROR_SUCCESS;
