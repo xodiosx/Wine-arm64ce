@@ -1,4 +1,4 @@
-name: Wine ARM64 (Termux + Proton Patches + VRAM)
+name: Wineg ARM64 (Termux + Proton Patches + VRAM)
 
 on:
   workflow_dispatch:
