@@ -200,9 +200,9 @@ jobs:
           if [ -f "$FILE" ]; then
             # Wrap the pthread_mutexattr_setrobust call with #ifdef
             sed -i '/pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);/i \
-           #ifdef PTHREAD_MUTEX_ROBUST' "$FILE"
+          #ifdef PTHREAD_MUTEX_ROBUST' "$FILE"
             sed -i '/pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);/a \
-          #endif' "$FILE"
+           #endif' "$FILE"
           fi
 
           echo "== All patches applied =="
