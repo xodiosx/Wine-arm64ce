@@ -85,11 +85,10 @@ jobs:
           mkdir -p /data/data/com.termux/files/usr/tmp
 
       # =========================
-      # Apply all patches (FEX, VRAM for Vulkan/DirectX/VKD3D)
+      # Apply all patches (FEX, VRAM, pulseaudio fix)
       # =========================
       - name: Apply comprehensive patches
         run: |
-          # The source is at the root of the checkout (no extra cd)
           echo "== 1. Fix /tmp paths for Termux =="
           find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) \
             -exec grep -l "/tmp" {} \; 2>/dev/null | \
@@ -196,6 +195,16 @@ jobs:
               }' "$FILE"
           fi
 
+          echo "== 13. Fix pulseaudio: handle missing PTHREAD_MUTEX_ROBUST =="
+          FILE="dlls/winepulse.drv/pulse.c"
+          if [ -f "$FILE" ]; then
+            # Wrap the pthread_mutexattr_setrobust call with #ifdef
+            sed -i '/pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);/i \
+#ifdef PTHREAD_MUTEX_ROBUST' "$FILE"
+            sed -i '/pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);/a \
+#endif' "$FILE"
+          fi
+
           echo "== All patches applied =="
 
       # =========================
@@ -203,7 +212,6 @@ jobs:
       # =========================
       - name: Build Wine tools
         run: |
-          # Run autogen if configure is missing
           if [ ! -f configure ]; then
             ./autogen.sh
           fi
@@ -293,7 +301,7 @@ jobs:
           make -j$(nproc)
           make install DESTDIR=compiled-files
 
-          # Ensure wine binary exists (symlink if missing)
+          # Ensure wine binary exists
           if [ ! -f compiled-files/usr/bin/wine ] && [ -f compiled-files/usr/bin/wine64 ]; then
             ln -s wine64 compiled-files/usr/bin/wine
           fi
