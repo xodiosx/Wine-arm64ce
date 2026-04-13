@@ -1,4 +1,4 @@
-name: Wine ARM64CE xmz (Termux + Proton Patches + VRAM)
+name: Wine ARM64CE xzm (Termux + Proton Patches + VRAM)
 
 on:
   workflow_dispatch:
@@ -39,10 +39,10 @@ jobs:
             libncurses5-dev:i386 libsane-dev:i386 libv4l-dev:i386 libgphoto2-dev:i386 \
             liblcms2-dev:i386 libcups2-dev:i386 libfontconfig1-dev:i386 libgsm1-dev:i386 \
             libtiff5-dev:i386 libmpg123-dev:i386 libopenal-dev:i386 libldap2-dev:i386 libjpeg-dev:i386
-          sudo apt purge -y llvm-18 clang-18  # avoid conflicts
+          sudo apt purge -y llvm-18 clang-18
 
       # =========================
-      # LLVM MinGW (from bylaws, pinned version)
+      # LLVM MinGW (pinned version, robust extraction)
       # =========================
       - name: Cache LLVM MinGW
         id: cache-llvm-mingw
@@ -55,10 +55,11 @@ jobs:
         if: steps.cache-llvm-mingw.outputs.cache-hit != 'true'
         run: |
           cd /opt
-          sudo wget https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
-          sudo tar -xf llvm-mingw-*.tar.xz
-          sudo mv llvm-mingw-* llvm-mingw
-          sudo rm llvm-mingw-*.tar.xz
+          sudo wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz -O llvm-mingw.tar.xz
+          sudo tar -xf llvm-mingw.tar.xz
+          EXTRACTED_DIR=$(tar tf llvm-mingw.tar.xz | head -1 | cut -f1 -d'/')
+          sudo mv "$EXTRACTED_DIR" llvm-mingw
+          sudo rm llvm-mingw.tar.xz
 
       - name: Export PATH
         run: echo "PATH=/opt/llvm-mingw/bin:$PATH" >> $GITHUB_ENV
@@ -84,21 +85,110 @@ jobs:
           mkdir -p /data/data/com.termux/files/usr/tmp
 
       # =========================
-      # Apply patches (VRAM, FEX, etc.)
+      # Apply all patches (FEX, VRAM for Vulkan/DirectX/VKD3D)
       # =========================
-      - name: Apply patches
+      - name: Apply comprehensive patches
         run: |
-          # Same comprehensive patching as before (FEX, VRAM for Vulkan/DirectX/VKD3D, etc.)
-          # (Include the full patch block from the previous answer – omitted here for brevity)
-          # Make sure to escape & in sed for unwind.h as shown earlier.
-          echo "All patches applied"
+          cd wine  # if source is in a subdirectory; otherwise remove this line
+
+          echo "== 1. Fix /tmp paths for Termux =="
+          find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) \
+            -exec grep -l "/tmp" {} \; 2>/dev/null | \
+            xargs -r sed -i 's|/tmp/|/data/data/com.termux/files/usr/tmp/|g'
+          find server -type f \( -name "*.c" -o -name "*.h" \) \
+            -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + || true
+
+          echo "== 2. InterlockedOr casting =="
+          FILE="dlls/atiadlxx/atiadlxx_main.c"
+          [ -f "$FILE" ] && sed -i 's/LONG dummy/long dummy/g' "$FILE" && \
+            sed -i 's|InterlockedOr(&dummy, 0)|_InterlockedOr((long volatile *)&dummy, 0)|g' "$FILE"
+
+          echo "== 3. Clean wdscore stubs =="
+          [ -f "dlls/wdscore/wdscore.spec" ] && sed -i '/CDynamicArray/d' "$_"
+
+          echo "== 4. ntdll virtual.c uninitialized vars =="
+          [ -f "dlls/ntdll/unix/virtual.c" ] && \
+            sed -i 's/unsigned int vprot, sec_flags;/unsigned int vprot = 0, sec_flags = 0;/g' "$_"
+
+          echo "== 5. PE directory mapping =="
+          [ -f "dlls/ntdll/unix/loader.c" ] && \
+            sed -i 's|/x86_64-windows|/aarch64-windows|g' "$_"
+
+          echo "== 6. ntdll loader buffer size =="
+          [ -f "dlls/ntdll/loader.c" ] && \
+            sed -i 's/ULONG buffer\[16\];/ULONG buffer[32];/g' "$_"
+
+          echo "== 7. wine.inf: xtajit64 -> libarm64ecfex =="
+          [ -f "loader/wine.inf.in" ] && \
+            sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' "$_"
+
+          echo "== 8. FEX YMM state (unwind.h, fixed escaping) =="
+          FILE="dlls/ntdll/unwind.h"
+          if [ -f "$FILE" ] && ! grep -q 'CONTEXT_ARM64_FEX_YMMSTATE' "$FILE"; then
+            sed -i '/ctx_flags_x64_to_arm/,/}/ {
+              /CONTEXT_AMD64_FLOATING_POINT/ s/$/\n          if (flags \& CONTEXT_AMD64_XSTATE) ret |= CONTEXT_ARM64_FEX_YMMSTATE;/
+            }' "$FILE"
+            sed -i '/ctx_flags_arm_to_x64/,/}/ {
+              /CONTEXT_ARM64_FLOATING_POINT/ s/$/\n          if (flags \& CONTEXT_ARM64_FEX_YMMSTATE) ret |= CONTEXT_AMD64_XSTATE;/
+            }' "$FILE"
+          fi
+
+          echo "== 9. winnt.h FEX flag =="
+          FILE="include/winnt.h"
+          if [ -f "$FILE" ] && ! grep -q 'CONTEXT_ARM64_FEX_YMMSTATE' "$FILE"; then
+            sed -i '/^#define CONTEXT_ARM64_X18/ s/.*/#define CONTEXT_ARM64_X18             (CONTEXT_ARM64 | 0x00000010)/' "$FILE"
+            if ! grep -q 'CONTEXT_ARM64_XSTATE' "$FILE"; then
+              sed -i '/CONTEXT_ARM64_X18/a #define CONTEXT_ARM64_XSTATE          (CONTEXT_ARM64 | 0x00000020)' "$FILE"
+            fi
+            sed -i '/CONTEXT_ARM64_XSTATE/a #define CONTEXT_ARM64_FEX_YMMSTATE   (CONTEXT_ARM64 | 0x00000040)' "$FILE"
+          fi
+
+          echo "== 10. VRAM: Vulkan =="
+          FILE="dlls/winevulkan/vulkan.c"
+          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
+            sed -i '/vkGetPhysicalDeviceMemoryProperties(host_physical_device, \&object->memory_properties);/a \
+              { \
+                  const char *v = getenv("WINE_VRAM_SIZE"); \
+                  uint64_t s = v ? (uint64_t)atoll(v)*1024*1024 : (uint64_t)2048*1024*1024; \
+                  uint32_t k; \
+                  for (k=0; k<object->memory_properties.memoryHeapCount; k++) \
+                      if (object->memory_properties.memoryHeaps[k].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
+                          object->memory_properties.memoryHeaps[k].size = s; \
+              }' "$FILE"
+          fi
+
+          echo "== 11. VRAM: DirectX (wined3d) =="
+          [ -f "dlls/wined3d/adapter_gl.c" ] && ! grep -q 'WINE_VRAM_SIZE' "$_" && \
+            sed -i '/gl_info->vidmem = vidmem;/a \
+              { const char *v = getenv("WINE_VRAM_SIZE"); if (v) gl_info->vidmem = (uint64_t)atoll(v) * 1024 * 1024; }' "$_"
+          [ -f "dlls/wined3d/adapter_vk.c" ] && ! grep -q 'WINE_VRAM_SIZE' "$_" && \
+            sed -i '/device->adapter.vidmem = vidmem;/a \
+              { const char *v = getenv("WINE_VRAM_SIZE"); if (v) device->adapter.vidmem = (uint64_t)atoll(v) * 1024 * 1024; }' "$_"
+
+          echo "== 12. VRAM: VKD3D =="
+          FILE="dlls/vkd3d/libs/vkd3d/device.c"
+          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
+            sed -i '/vkGetPhysicalDeviceMemoryProperties(physical_device, \&memory_properties);/a \
+              { \
+                  const char *v = getenv("WINE_VRAM_SIZE"); \
+                  if (v) { \
+                      uint64_t s = (uint64_t)atoll(v) * 1024 * 1024; \
+                      for (uint32_t i = 0; i < memory_properties.memoryHeapCount; ++i) \
+                          if (memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
+                              memory_properties.memoryHeaps[i].size = s; \
+                  } \
+              }' "$FILE"
+          fi
+
+          echo "== All patches applied =="
 
       # =========================
       # Build Wine tools (host)
       # =========================
       - name: Build Wine tools
         run: |
-          ./autogen.sh   # if needed (your source may already have configure)
+          cd wine   # adjust if needed
+          ./autogen.sh  # if configure not present
           mkdir -p wine-tools
           mkdir wine-tools-build
           cd wine-tools-build
@@ -107,10 +197,11 @@ jobs:
           cp -r ./* ../wine-tools/
 
       # =========================
-      # Configure and build Wine (ARM64)
+      # Build Wine (first pass)
       # =========================
       - name: Build Wine (first pass)
         run: |
+          cd wine
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
           export PATH="$LLVM_MINGW_TOOLCHAIN:$TOOLCHAIN:$PATH"
@@ -118,13 +209,11 @@ jobs:
 
           export CC="$TOOLCHAIN/clang --target=aarch64-linux-android28"
           export CXX="$TOOLCHAIN/clang++ --target=aarch64-linux-android28"
-
           export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
           export LDFLAGS="-L$deps/lib"
           export LIBRARY_PATH="$deps/lib"
-
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
@@ -145,11 +234,14 @@ jobs:
             --without-dbus \
             --without-freetype \
             --enable-wineandroid_drv=no
-
           make -j$(nproc)
 
-      - name: Recompile with Android shared libs and install
+      # =========================
+      # Rebuild with Android libs and install
+      # =========================
+      - name: Rebuild with -landroid-shmem/spawn and install
         run: |
+          cd wine
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
           export PATH="$LLVM_MINGW_TOOLCHAIN:$TOOLCHAIN:$PATH"
@@ -157,13 +249,11 @@ jobs:
 
           export CC="$TOOLCHAIN/clang --target=aarch64-linux-android28"
           export CXX="$TOOLCHAIN/clang++ --target=aarch64-linux-android28"
-
           export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
           export LDFLAGS="-L$deps/lib -landroid-shmem -landroid-spawn"
           export LIBRARY_PATH="$deps/lib"
-
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
@@ -184,22 +274,20 @@ jobs:
             --without-dbus \
             --without-freetype \
             --enable-wineandroid_drv=no
-
           make -j$(nproc)
           make install DESTDIR=compiled-files
 
-          # Ensure the wine binary exists (workaround for missing symlink)
+          # Ensure wine binary exists (symlink if missing)
           if [ ! -f compiled-files/usr/bin/wine ] && [ -f compiled-files/usr/bin/wine64 ]; then
             ln -s wine64 compiled-files/usr/bin/wine
           fi
-          # Verify
           ls -la compiled-files/usr/bin/
 
       - name: Package artifact
         run: |
-          cd compiled-files
+          cd wine/compiled-files
           tar -czf wine-termux-arm64-proton-vram.tar.gz *
-          mv wine-termux-arm64-proton-vram.tar.gz ../
+          mv wine-termux-arm64-proton-vram.tar.gz ../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
