@@ -148,6 +148,7 @@ jobs:
             --disable-opencl \
             --without-alsa \
             --without-cups \
+            --without-freetype \
             --without-dbus \
             --without-gphoto \
             --without-krb5 \
