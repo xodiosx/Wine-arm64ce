@@ -33,15 +33,17 @@ jobs:
             libgnutls28-dev libopenal-dev
 
       # =========================
-      # LLVM MinGW
+      # LLVM MinGW (robust extraction)
       # =========================
       - name: Setup LLVM MinGW
         run: |
           sudo mkdir -p /opt
           cd /opt
-          sudo wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
-          sudo tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
-          sudo mv llvm-mingw-* llvm-mingw
+          sudo wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz -O llvm-mingw.tar.xz
+          sudo tar -xf llvm-mingw.tar.xz
+          EXTRACTED_DIR=$(tar tf llvm-mingw.tar.xz | head -1 | cut -f1 -d'/')
+          sudo mv "$EXTRACTED_DIR" llvm-mingw
+          sudo rm llvm-mingw.tar.xz
           echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
 
       # =========================
@@ -66,7 +68,7 @@ jobs:
           cp termuxfs.tar ../termux-rootfs.tar
 
       # =========================
-      # VRAM Patch (CORRECTED)
+      # VRAM Patch (corrected insertion points)
       # =========================
       - name: Apply VRAM patch
         run: |
@@ -111,7 +113,7 @@ jobs:
           mv wine-tools-build wine-tools
 
       # =========================
-      # Build Wine ARM64EC (single-pass, no preloader issue)
+      # Build Wine ARM64EC (matching local script)
       # =========================
       - name: Build Wine ARM64EC
         run: |
@@ -134,7 +136,7 @@ jobs:
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
 
-          # CRITICAL: Do NOT put -landroid-* in LDFLAGS. Use X_LIBS as the local script does.
+          # IMPORTANT: Android libraries go into X_LIBS, not global LDFLAGS (avoids preloader errors)
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
           export X_LIBS="-L$deps/lib -landroid-shmem -landroid-spawn"
           export LIBRARY_PATH="$deps/lib"
@@ -182,7 +184,7 @@ jobs:
           make -j$(nproc)
           make install DESTDIR=../compiled-files
 
-          # Ensure wine launcher
+          # Ensure wine launcher exists
           if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
             ln -s wine64 ../compiled-files/usr/bin/wine
           fi
@@ -223,7 +225,7 @@ jobs:
           body: |
             **Wine ARM64EC build for Termux**
             - Built with ARM64EC support and VRAM override patch.
-            - Full Termux rootfs included.
+            - Full Termux rootfs included (extract to `/data/data/com.termux/files`).
             - Set `WINE_VRAM_SIZE` (in MiB) to override VRAM.
 
             **Files:**
