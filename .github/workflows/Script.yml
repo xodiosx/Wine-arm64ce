@@ -19,116 +19,111 @@ jobs:
           fetch-depth: 0
 
     
-      # =========================
-      # INSTALL DEPS (MINIMAL SAFE)
-      # =========================
-      - name: Install dependencies
+
+      - name: Install required deps
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt update
-          sudo apt install -y \
-            build-essential git wget curl xz-utils flex bison pkg-config \
-            gettext icoutils fontforge-nox \
-            libx11-dev libxext-dev libxrandr-dev libxrender-dev \
-            libxcursor-dev libxi-dev libxfixes-dev libxcomposite-dev \
-            libxinerama-dev libxxf86vm-dev \
-            libgl1-mesa-dev libvulkan-dev \
-            libpulse-dev libdbus-1-dev \
-            libfontconfig-dev libfreetype-dev \
-            libgnutls28-dev libasound2-dev \
-            llvm clang lld \
-            gcc-multilib g++-multilib
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential gcc-multilib flex bison \
+            gcc-mingw-w64 libz-mingw-w64-dev \
+            clang lld llvm \
+            pkg-config gettext unzip \
+            libxml-libxml-perl libssl-dev \
+            libfreetype-dev libpulse-dev libsdl2-dev \
+            libdbus-1-dev libfontconfig-dev \
+            libgnutls28-dev libopenal-dev
 
-      # =========================
-      # TERMUX SYSROOT
-      # =========================
-      - name: Setup Termux sysroot
+      - name: Setup Termux environment
         run: |
-          mkdir sysroot && cd sysroot
+          mkdir imagefs
+          cd imagefs
           wget https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
           tar xf termuxfs.tar
-          sudo mv data /data
+          rm termuxfs.tar
+          sudo mv ./data /
           sudo chown -R $(whoami):$(whoami) /data
 
-      # =========================
-      # LLVM MINGW
-      # =========================
-      - name: Setup LLVM MinGW
+      - name: Setup llvm-mingw
         run: |
-          cd /opt
           wget https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
           tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
-          mv llvm-mingw-* llvm-mingw
-          echo "PATH=/opt/llvm-mingw/bin:$PATH" >> $GITHUB_ENV
+          sudo mv llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64 /opt/llvm-mingw
 
-      # =========================
-      # ANDROID NDK
-      # =========================
+      - name: Setup Android SDK + NDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r28c
+          add-to-path: false
+          link-to-sdk: true
 
-      # =========================
-      # BUILD WINE (SCRIPT STYLE)
-      # =========================
-      - name: Build Wine (single-pass clean)
+      # -------------------------------
+      # Build Wine tools (host)
+      # -------------------------------
+      - name: Build Wine tools
         run: |
-          cd wine
+          ./autogen.sh
+          mkdir wine-tools-build
+          cd wine-tools-build
+          ../configure --without-x --without-vulkan --without-gstreamer
+          make -j$(nproc) __tooldeps__ nls/all
+          cd ..
+          mv wine-tools-build wine-tools
 
-          export WORKDIR=$(pwd)
-          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
-          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
+      # -------------------------------
+      # Build Wine (Android ARM64EC)
+      # -------------------------------
+      - name: Build Wine ARM64EC (single pass)
+        run: |
+          export TOOLCHAIN="/usr/local/lib/android/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export LLVM_MINGW="/opt/llvm-mingw/bin"
+          export PATH="$LLVM_MINGW:$PATH"
 
           export deps="/data/data/com.termux/files/usr"
-          export ARCH="aarch64"
-          export SDKVER="28"
-          export TARGET="$ARCH-linux-android"
 
-          export install_prefix="$WORKDIR/wine-out"
-          export winetools_dir="$WORKDIR/wine-tools"
+          export TARGET="aarch64-linux-android"
+          export API=28
 
-          export CC="$TOOLCHAIN/$TARGET$SDKVER-clang"
-          export CXX="$TOOLCHAIN/$TARGET$SDKVER-clang++"
-          export AR=$TOOLCHAIN/llvm-ar
-          export RANLIB=$TOOLCHAIN/llvm-ranlib
-          export STRIP=$TOOLCHAIN/llvm-strip
-          export DLLTOOL=$LLVM_MINGW_TOOLCHAIN/llvm-dlltool
+          export CC="$TOOLCHAIN/${TARGET}${API}-clang"
+          export CXX="$TOOLCHAIN/${TARGET}${API}-clang++"
+          export AS=$CC
+          export AR="$TOOLCHAIN/llvm-ar"
+          export RANLIB="$TOOLCHAIN/llvm-ranlib"
+          export STRIP="$TOOLCHAIN/llvm-strip"
 
-          export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
+          export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export CPPFLAGS="-I$deps/include"
-          export CFLAGS="-O2 -s -Wno-declaration-after-statement"
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
+          export CFLAGS="-O2 -s -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+
+          # 🔥 ANDROID FIX (important)
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -landroid-shmem -landroid-spawn"
+          export LIBS="-landroid-shmem -landroid-spawn"
+
+          export LIBRARY_PATH="$deps/lib"
 
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
+          export SDL2_CFLAGS="-I$deps/include/SDL2"
+          export SDL2_LIBS="-L$deps/lib -lSDL2"
 
-          ./autogen.sh
-
-          # =========================
-          # BUILD TOOLS FIRST
-          # =========================
-          mkdir build-tools && cd build-tools
-          ../configure --without-x --without-vulkan
-          make -j$(nproc) __tooldeps__
-          cd ..
-
-          # =========================
-          # MAIN BUILD
-          # =========================
           mkdir build && cd build
 
           ../configure \
-            --enable-archs=arm64ec,aarch64,i386 \
+            --host=${TARGET}${API} \
             --prefix=/usr \
-            --host=$TARGET$SDKVER \
-            --with-mingw=clang \
-            --with-wine-tools=../build-tools \
+            --enable-archs=arm64ec,aarch64,i386 \
             --enable-win64 \
-            --disable-tests \
+            --with-mingw=clang \
+            --with-wine-tools=../wine-tools \
+            --enable-nls \
+            --with-pulse \
             --disable-win16 \
+            --disable-tests \
+            --disable-opencl \
             --without-alsa \
             --without-cups \
             --without-dbus \
@@ -137,6 +132,7 @@ jobs:
             --without-netapi \
             --without-oss \
             --without-pcap \
+            --without-pcsclite \
             --without-sane \
             --without-udev \
             --without-usb \
@@ -147,27 +143,31 @@ jobs:
             --enable-wineandroid_drv=no
 
           make -j$(nproc)
-          make install DESTDIR=$install_prefix
 
-          # =========================
-          # STRIP + CLEAN (SIZE FIX)
-          # =========================
-          echo "Stripping binaries..."
-          find $install_prefix -type f -exec $STRIP --strip-unneeded {} \; 2>/dev/null || true
+          make install DESTDIR=../wine-out
 
-          echo "Removing bloat..."
-          rm -rf $install_prefix/usr/include
-          rm -rf $install_prefix/usr/share/doc
-          rm -rf $install_prefix/usr/share/man
-          rm -rf $install_prefix/usr/share/wine/gecko
-          rm -rf $install_prefix/usr/share/wine/mono
+      # -------------------------------
+      # Strip + cleanup (size reduction)
+      # -------------------------------
+      - name: Strip & cleanup
+        run: |
+          find wine-out -type f -executable -exec strip --strip-unneeded {} \; || true
 
-      # =========================
-      # UPLOAD
-      # =========================
+          rm -rf wine-out/usr/include
+          rm -rf wine-out/usr/share/man
+          rm -rf wine-out/usr/share/doc
+          rm -rf wine-out/usr/share/wine/gecko
+          rm -rf wine-out/usr/share/wine/mono
+
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
-          name: wine-arm64ec-clean
-          path: wine/wine-out
+          name: wine-arm64ec
+          path: wine-out/
 
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: build/config.log
