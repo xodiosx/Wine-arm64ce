@@ -164,6 +164,7 @@ jobs:
             --disable-tests \
             --disable-opencl \
             --without-alsa \
+            --without-freetype \
             --without-cups \
             --without-dbus \
             --without-gphoto \
