@@ -1,6 +1,7 @@
 name: Wine xzm ARM64CE (Termux + Proton Patches + VRAM)
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
