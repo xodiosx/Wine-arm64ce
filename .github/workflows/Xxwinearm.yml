@@ -1,4 +1,4 @@
-name: Wineg ARM64 (Termux + Proton Patches + VRAM)
+name: Wine xzm ARM64CE (Termux + Proton Patches + VRAM)
 
 on:
   workflow_dispatch:
@@ -19,9 +19,11 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
+          # Install essential 32-bit development libraries
           sudo apt install -y \
             build-essential gcc-multilib g++-multilib \
             libc6-dev:i386 libc6:i386 linux-libc-dev:i386 \
+            libc6-dev-i386 lib32gcc-s1 lib32stdc++6 lib32z1 \
             debhelper-compat=13 gcc-mingw-w64 libz-mingw-w64-dev lzma flex bison quilt unzip \
             gettext icoutils sharutils pkg-config dctrl-tools imagemagick librsvg2-bin fontforge-nox \
             khronos-api unicode-data unicode-idna \
@@ -40,7 +42,10 @@ jobs:
             libncurses5-dev:i386 libsane-dev:i386 libv4l-dev:i386 libgphoto2-dev:i386 \
             liblcms2-dev:i386 libcups2-dev:i386 libfontconfig1-dev:i386 libgsm1-dev:i386 \
             libtiff5-dev:i386 libmpg123-dev:i386 libopenal-dev:i386 libldap2-dev:i386 libjpeg-dev:i386
+          # Remove conflicting LLVM versions
           sudo apt purge -y llvm-18 clang-18
+          # Reinstall multilib to ensure proper configuration
+          sudo apt install --reinstall -y gcc-multilib g++-multilib
 
       # =========================
       # LLVM MinGW (pinned version, robust extraction)
