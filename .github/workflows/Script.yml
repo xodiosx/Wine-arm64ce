@@ -1,4 +1,4 @@
-name: xWine mz script ARM64CE Termux
+name: xWine script ARM64CE Termux
 
 on:
   push:
@@ -33,15 +33,25 @@ jobs:
             libgnutls28-dev libopenal-dev
 
       # =========================
-      # LLVM MinGW
+      # FIXED LLVM MINGW SETUP
       # =========================
-      - name: Setup LLVM MinGW
+      - name: Setup LLVM MinGW (fixed)
         run: |
           sudo mkdir -p /opt
           cd /opt
-          sudo wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
-          sudo tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
-          sudo mv llvm-mingw-* llvm-mingw
+
+          sudo wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz -O llvm.tar.xz
+
+          sudo tar -xf llvm.tar.xz
+
+          # 🔥 dynamically detect extracted folder
+          DIR=$(tar tf llvm.tar.xz | head -1 | cut -f1 -d"/")
+
+          echo "Detected folder: $DIR"
+
+          sudo mv "$DIR" llvm-mingw
+          sudo rm llvm.tar.xz
+
           echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
 
       # =========================
@@ -66,20 +76,16 @@ jobs:
           cp termuxfs.tar ../termux-rootfs.tar
 
       # =========================
-      # VRAM Patch ONLY
+      # VRAM PATCH ONLY
       # =========================
       - name: Apply VRAM patch
         run: |
-          echo "Applying VRAM patch..."
-
           FILE="dlls/winevulkan/vulkan.c"
-          if [ -f "$FILE" ]; then
-            sed -i '/vkGetPhysicalDeviceMemoryProperties/a \
-            { const char *v=getenv("WINE_VRAM_SIZE"); uint64_t s=v?(uint64_t)atoll(v)*1024*1024:(uint64_t)2048*1024*1024; \
-            for(uint32_t i=0;i<object->memory_properties.memoryHeapCount;i++) \
-            if(object->memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
-            object->memory_properties.memoryHeaps[i].size=s; }' "$FILE"
-          fi
+          [ -f "$FILE" ] && sed -i '/vkGetPhysicalDeviceMemoryProperties/a \
+          { const char *v=getenv("WINE_VRAM_SIZE"); uint64_t s=v?(uint64_t)atoll(v)*1024*1024:(uint64_t)2048*1024*1024; \
+          for(uint32_t i=0;i<object->memory_properties.memoryHeapCount;i++) \
+          if(object->memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
+          object->memory_properties.memoryHeaps[i].size=s; }' "$FILE"
 
           FILE="dlls/wined3d/adapter_gl.c"
           [ -f "$FILE" ] && sed -i '/vidmem =/a { const char *v=getenv("WINE_VRAM_SIZE"); if(v) gl_info->vidmem=(uint64_t)atoll(v)*1024*1024; }' "$FILE"
@@ -88,7 +94,7 @@ jobs:
           [ -f "$FILE" ] && sed -i '/vidmem =/a { const char *v=getenv("WINE_VRAM_SIZE"); if(v) device->adapter.vidmem=(uint64_t)atoll(v)*1024*1024; }' "$FILE"
 
       # =========================
-      # Build Wine tools
+      # Wine tools
       # =========================
       - name: Build Wine tools
         run: |
@@ -101,13 +107,12 @@ jobs:
           mv wine-tools-build wine-tools
 
       # =========================
-      # Build Wine (FINAL FIXED)
+      # SINGLE PASS BUILD
       # =========================
-      - name: Build Wine ARM64EC (single-pass)
+      - name: Build Wine ARM64EC
         run: |
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export LLVM_MINGW="/opt/llvm-mingw/bin"
-          export PATH="$LLVM_MINGW:$TOOLCHAIN:$PATH"
+          export PATH="/opt/llvm-mingw/bin:$TOOLCHAIN:$PATH"
 
           export deps="/data/data/com.termux/files/usr"
           export TARGET="aarch64-linux-android"
@@ -115,7 +120,6 @@ jobs:
 
           export CC="$TOOLCHAIN/${TARGET}${API}-clang"
           export CXX="$TOOLCHAIN/${TARGET}${API}-clang++"
-          export AS=$CC
           export AR="$TOOLCHAIN/llvm-ar"
           export RANLIB="$TOOLCHAIN/llvm-ranlib"
           export STRIP="$TOOLCHAIN/llvm-strip"
@@ -124,17 +128,9 @@ jobs:
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-O2 -s -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
 
-          # 🔥 Android compatibility baked in
+          # 🔥 correct Android linking
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -landroid-shmem -landroid-spawn"
           export LIBS="-landroid-shmem -landroid-spawn"
-
-          export LIBRARY_PATH="$deps/lib"
-
-          export FREETYPE_CFLAGS="-I$deps/include/freetype2"
-          export PULSE_CFLAGS="-I$deps/include/pulse"
-          export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
-          export SDL2_CFLAGS="-I$deps/include/SDL2"
-          export SDL2_LIBS="-L$deps/lib -lSDL2"
 
           mkdir build && cd build
 
@@ -171,51 +167,14 @@ jobs:
           make -j$(nproc)
           make install DESTDIR=../compiled-files
 
-          # ensure wine launcher
-          if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
-            ln -s wine64 ../compiled-files/usr/bin/wine
-          fi
-
-      # =========================
-      # Strip & shrink
-      # =========================
-      - name: Strip binaries
-        run: |
-          find compiled-files -type f -executable -exec strip --strip-unneeded {} \; || true
-          rm -rf compiled-files/usr/include
-          rm -rf compiled-files/usr/share/doc
-          rm -rf compiled-files/usr/share/man
-
-      # =========================
-      # Package
-      # =========================
-      - name: Package Wine
+      - name: Package
         run: |
           cd compiled-files
-          tar -czf wine-termux-arm64ec.tar.gz *
-          mv wine-termux-arm64ec.tar.gz ../
+          tar -czf wine.tar.gz *
+          mv wine.tar.gz ../
 
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: wine-arm64ec
-          path: wine-termux-arm64ec.tar.gz
-
-      # =========================
-      # Release
-      # =========================
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: wine-${{ github.run_number }}
-          name: Wine ARM64EC (Termux)
-          body: |
-            Clean ARM64EC Wine build (Proton/FEX base)
-            - Single-pass build (no rebuild)
-            - Android shmem/spawn integrated
-            - VRAM override supported (WINE_VRAM_SIZE)
-          files: |
-            wine-termux-arm64ec.tar.gz
-            termux-rootfs.tar
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: wine.tar.gz
