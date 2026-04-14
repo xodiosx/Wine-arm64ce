@@ -1,7 +1,6 @@
 name: Wine arm64ec for Termux
 
 on:
-  push:
   workflow_dispatch:
 
 jobs:
