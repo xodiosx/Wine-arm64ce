@@ -2,6 +2,7 @@ name: Winex ARM64 (Termux + Proton Patches + VRAM)
 
 on:
   push:
+
   workflow_dispatch:
 
 jobs:
@@ -11,12 +12,12 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Wine source (from your repository)
+      - name: Checkout Wine source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install dependencies
+      - name: Install dependencies (full 32-bit support)
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
@@ -226,7 +227,7 @@ jobs:
           cp -r ./* ../wine-tools/
 
       # =========================
-      # Build Wine (first pass)
+      # Build Wine (first pass, out-of-tree)
       # =========================
       - name: Build Wine (first pass)
         run: |
@@ -248,11 +249,13 @@ jobs:
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
 
-          ./configure \
+          mkdir -p build-cross
+          cd build-cross
+          ../configure \
             --prefix=/usr \
             --host=aarch64-linux-android \
             --with-mingw=clang \
-            --with-wine-tools=./wine-tools \
+            --with-wine-tools=../wine-tools \
             --enable-win64 \
             --disable-tests \
             --without-x \
@@ -266,7 +269,7 @@ jobs:
           make -j$(nproc)
 
       # =========================
-      # Rebuild with Android libs and install
+      # Rebuild with Android libs and install (out-of-tree)
       # =========================
       - name: Rebuild with -landroid-shmem/spawn and install
         run: |
@@ -288,11 +291,13 @@ jobs:
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
 
-          ./configure \
+          cd build-cross
+          # Re-run configure with updated LDFLAGS
+          ../configure \
             --prefix=/usr \
             --host=aarch64-linux-android \
             --with-mingw=clang \
-            --with-wine-tools=./wine-tools \
+            --with-wine-tools=../wine-tools \
             --enable-win64 \
             --disable-tests \
             --without-x \
@@ -306,17 +311,22 @@ jobs:
           make -j$(nproc)
           make install DESTDIR=compiled-files
 
-          # Ensure wine binary exists
-          if [ ! -f compiled-files/usr/bin/wine ] && [ -f compiled-files/usr/bin/wine64 ]; then
-            ln -s wine64 compiled-files/usr/bin/wine
+          # Check if binaries were installed correctly
+          if [ -d compiled-files/usr/bin ]; then
+            if [ ! -f compiled-files/usr/bin/wine ] && [ -f compiled-files/usr/bin/wine64 ]; then
+              ln -s wine64 compiled-files/usr/bin/wine
+            fi
+            ls -la compiled-files/usr/bin/
+          else
+            echo "ERROR: compiled-files/usr/bin/ not found. Build may have failed."
+            exit 1
           fi
-          ls -la compiled-files/usr/bin/
 
       - name: Package artifact
         run: |
-          cd compiled-files
+          cd build-cross/compiled-files
           tar -czf wine-termux-arm64-proton-vram.tar.gz *
-          mv wine-termux-arm64-proton-vram.tar.gz ../
+          mv wine-termux-arm64-proton-vram.tar.gz ../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
