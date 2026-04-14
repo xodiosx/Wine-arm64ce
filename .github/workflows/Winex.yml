@@ -1,7 +1,8 @@
-name: xWine branch ARM64CE Termux
+name: xWine mz ARM64CE Termux
 
-on:  
-   
+on:
+  push:
+    branches: [ upstream-arm64ec ]
   workflow_dispatch:
 
 jobs:
@@ -14,7 +15,7 @@ jobs:
       - name: Checkout Wine source (from upstream-arm64ec branch)
         uses: actions/checkout@v4
         with:
-          ref: upstream-arm64ec    # ← Builds from your patched branch
+          ref: upstream-arm64ec
           fetch-depth: 0
 
       - name: Install dependencies
@@ -44,7 +45,7 @@ jobs:
           sudo apt purge -y llvm-18 clang-18
 
       # =========================
-      # LLVM MinGW (pinned version, robust extraction)
+      # LLVM MinGW
       # =========================
       - name: Cache LLVM MinGW
         id: cache-llvm-mingw
@@ -75,19 +76,21 @@ jobs:
           ndk-version: r28c
 
       # =========================
-      # Termux sysroot (from xodiosx)
+      # Termux sysroot (new URL)
       # =========================
       - name: Setup Termux sysroot
         run: |
           mkdir -p termux && cd termux
-          wget https://github.com/xodiosx/Termux-gh/releases/download/test/termuxfs.tar
+          wget https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
           tar xf termuxfs.tar
           sudo mv data /data
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
+          # Keep a copy of the rootfs tarball for release
+          cp termuxfs.tar ../termux-rootfs.tar
 
       # =========================
-      # Apply all patches (FEX, VRAM, pulseaudio fix)
+      # Apply patches
       # =========================
       - name: Apply comprehensive patches
         run: |
@@ -135,7 +138,7 @@ jobs:
             sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' "$FILE"
           fi
 
-          echo "== 8. FEX YMM state (unwind.h, fixed escaping) =="
+          echo "== 8. FEX YMM state (unwind.h) =="
           FILE="dlls/ntdll/unwind.h"
           if [ -f "$FILE" ] && ! grep -q 'CONTEXT_ARM64_FEX_YMMSTATE' "$FILE"; then
             sed -i '/ctx_flags_x64_to_arm/,/}/ {
@@ -156,7 +159,7 @@ jobs:
             sed -i '/CONTEXT_ARM64_XSTATE/a #define CONTEXT_ARM64_FEX_YMMSTATE   (CONTEXT_ARM64 | 0x00000040)' "$FILE"
           fi
 
-          echo "== 10. VRAM: Vulkan =="
+          echo "== 10. VRAM patches (Vulkan, wined3d, vkd3d) =="
           FILE="dlls/winevulkan/vulkan.c"
           if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
             sed -i '/vkGetPhysicalDeviceMemoryProperties(host_physical_device, \&object->memory_properties);/a \
@@ -170,7 +173,6 @@ jobs:
               }' "$FILE"
           fi
 
-          echo "== 11. VRAM: DirectX (wined3d) =="
           FILE="dlls/wined3d/adapter_gl.c"
           if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
             sed -i '/gl_info->vidmem = vidmem;/a \
@@ -182,7 +184,6 @@ jobs:
               { const char *v = getenv("WINE_VRAM_SIZE"); if (v) device->adapter.vidmem = (uint64_t)atoll(v) * 1024 * 1024; }' "$FILE"
           fi
 
-          echo "== 12. VRAM: VKD3D =="
           FILE="dlls/vkd3d/libs/vkd3d/device.c"
           if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
             sed -i '/vkGetPhysicalDeviceMemoryProperties(physical_device, \&memory_properties);/a \
@@ -197,10 +198,9 @@ jobs:
               }' "$FILE"
           fi
 
-          echo "== 13. Fix pulseaudio: handle missing PTHREAD_MUTEX_ROBUST =="
+          echo "== 11. pulseaudio PTHREAD_MUTEX_ROBUST fix =="
           FILE="dlls/winepulse.drv/pulse.c"
           if [ -f "$FILE" ]; then
-            # Wrap the pthread_mutexattr_setrobust call with #ifdef
             sed -i '/pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);/i \
           #ifdef PTHREAD_MUTEX_ROBUST' "$FILE"
             sed -i '/pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);/a \
@@ -239,7 +239,8 @@ jobs:
           export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          export LDFLAGS="-L$deps/lib"
+          # Add FFmpeg libraries to LDFLAGS to resolve winedmo symbols
+          export LDFLAGS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
           export LIBRARY_PATH="$deps/lib"
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
@@ -261,10 +262,12 @@ jobs:
             --without-dbus \
             --without-freetype \
             --enable-wineandroid_drv=no
-          make -j$(nproc)
+
+          # Build with filtered output (show only errors and warnings)
+          make -j$(nproc) 2>&1 | tee build.log | grep -E --color=never 'error:|warning:|undefined|Error |make(\[.*\])?:|ld\.lld:|clang(\+\+)?:|collect2:|Entering|Leaving|^make:'
 
       # =========================
-      # Rebuild with Android libs and install
+      # Rebuild with Android shmem/spawn and install
       # =========================
       - name: Rebuild with -landroid-shmem/spawn and install
         run: |
@@ -278,7 +281,8 @@ jobs:
           export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          export LDFLAGS="-L$deps/lib -landroid-shmem -landroid-spawn"
+          # Include both Android shmem/spawn and FFmpeg libraries
+          export LDFLAGS="-L$deps/lib -landroid-shmem -landroid-spawn -lavcodec -lavformat -lavutil -lswresample"
           export LIBRARY_PATH="$deps/lib"
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
@@ -300,7 +304,8 @@ jobs:
             --without-dbus \
             --without-freetype \
             --enable-wineandroid_drv=no
-          make -j$(nproc)
+
+          make -j$(nproc) 2>&1 | tee build2.log | grep -E --color=never 'error:|warning:|undefined|Error |make(\[.*\])?:|ld\.lld:|clang(\+\+)?:|collect2:|Entering|Leaving|^make:'
           make install DESTDIR=compiled-files
 
           # Ensure wine binary exists
@@ -309,18 +314,21 @@ jobs:
           fi
           ls -la compiled-files/usr/bin/
 
-      - name: Package artifact
+      - name: Package Wine artifact
         run: |
           cd compiled-files
           tar -czf wine-termux-arm64-proton-vram.tar.gz *
           mv wine-termux-arm64-proton-vram.tar.gz ../
 
-      - name: Upload artifact
+      - name: Upload Wine artifact
         uses: actions/upload-artifact@v4
         with:
           name: wine-termux-arm64-proton-vram
           path: wine-termux-arm64-proton-vram.tar.gz
 
+      # =========================
+      # Create release with both Wine and Termux rootfs
+      # =========================
       - name: Create GitHub Release
         id: release_tag
         run: echo "tag=wine-termux-${{ github.run_number }}-$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
@@ -329,8 +337,18 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_tag.outputs.tag }}
-          name: "Wine ARM64 for Termux (Proton + VRAM)"
-          body: "Includes wine binary and all libraries. Set WINE_VRAM_SIZE (MiB) to override VRAM."
-          files: wine-termux-arm64-proton-vram.tar.gz
+          name: "Wine ARM64 for Termux + Full Rootfs"
+          body: |
+            **Wine ARM64CE build for Termux**
+            - Includes Wine binaries and libraries (Proton + VRAM patches)
+            - Termux rootfs (full) included as separate tarball
+            - Set `WINE_VRAM_SIZE` (in MiB) to override VRAM.
+
+            **Files:**
+            - `wine-termux-arm64-proton-vram.tar.gz` – Wine installation (extract to /data/data/com.termux/files/usr)
+            - `termux-rootfs.tar` – Full Termux rootfs (extract to /data/data/com.termux/files/usr)
+          files: |
+            wine-termux-arm64-proton-vram.tar.gz
+            termux-rootfs.tar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
