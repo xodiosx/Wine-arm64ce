@@ -108,7 +108,7 @@ jobs:
           ./autogen.sh
           mkdir wine-tools-build
           cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-gstreamer
+          ../configure --without-x --without-vulkan --without-gstreamer --without-freetype
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
@@ -173,6 +173,7 @@ jobs:
             --disable-opencl \
             --disable-tests \
             --without-capi \
+            --without-freetype \
             --without-coreaudio \
             --without-cups \
             --without-dbus \
