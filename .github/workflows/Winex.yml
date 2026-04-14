@@ -76,7 +76,7 @@ jobs:
           ndk-version: r28c
 
       # =========================
-      # Termux sysroot (new URL)
+      # Termux sysroot
       # =========================
       - name: Setup Termux sysroot
         run: |
@@ -86,11 +86,10 @@ jobs:
           sudo mv data /data
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
-          # Keep a copy of the rootfs tarball for release
           cp termuxfs.tar ../termux-rootfs.tar
 
       # =========================
-      # Apply patches
+      # Apply patches (FEX, VRAM, etc.)
       # =========================
       - name: Apply comprehensive patches
         run: |
@@ -159,7 +158,7 @@ jobs:
             sed -i '/CONTEXT_ARM64_XSTATE/a #define CONTEXT_ARM64_FEX_YMMSTATE   (CONTEXT_ARM64 | 0x00000040)' "$FILE"
           fi
 
-          echo "== 10. VRAM patches (Vulkan, wined3d, vkd3d) =="
+          echo "== 10. VRAM patches =="
           FILE="dlls/winevulkan/vulkan.c"
           if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
             sed -i '/vkGetPhysicalDeviceMemoryProperties(host_physical_device, \&object->memory_properties);/a \
@@ -198,7 +197,7 @@ jobs:
               }' "$FILE"
           fi
 
-          echo "== 11. pulseaudio PTHREAD_MUTEX_ROBUST fix =="
+          echo "== 11. pulseaudio fix =="
           FILE="dlls/winepulse.drv/pulse.c"
           if [ -f "$FILE" ]; then
             sed -i '/pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);/i \
@@ -239,31 +238,50 @@ jobs:
           export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          # Add FFmpeg libraries to LDFLAGS to resolve winedmo symbols
-          export LDFLAGS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
+          export LDFLAGS="-L$deps/lib"
           export LIBRARY_PATH="$deps/lib"
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
+          export FFMPEG_CFLAGS="-I$deps/include"
+          export FFMPEG_LIBS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
 
           ./configure \
+            --enable-archs=arm64ec,aarch64,i386 \
             --prefix=/usr \
             --host=aarch64-linux-android \
             --with-mingw=clang \
             --with-wine-tools=./wine-tools \
             --enable-win64 \
-            --disable-tests \
-            --without-x \
-            --without-wayland \
+            --enable-nls \
+            --with-pulse \
+            --disable-win16 \
+            --disable-opencl \
             --without-alsa \
+            --disable-tests \
+            --without-capi \
+            --without-coreaudio \
             --without-cups \
             --without-dbus \
-            --without-freetype \
+            --without-gphoto \
+            --without-gssapi \
+            --without-krb5 \
+            --without-netapi \
+            --without-oss \
+            --without-pcap \
+            --without-pcsclite \
+            --without-sane \
+            --without-udev \
+            --without-unwind \
+            --without-usb \
+            --without-v4l2 \
+            --without-wayland \
+            --without-xinerama \
+            --without-xxf86vm \
             --enable-wineandroid_drv=no
 
-          # Build with filtered output (show only errors and warnings)
           make -j$(nproc) 2>&1 | tee build.log | grep -E --color=never 'error:|warning:|undefined|Error |make(\[.*\])?:|ld\.lld:|clang(\+\+)?:|collect2:|Entering|Leaving|^make:'
 
       # =========================
@@ -281,28 +299,48 @@ jobs:
           export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export CPPFLAGS="-I$deps/include"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          # Include both Android shmem/spawn and FFmpeg libraries
-          export LDFLAGS="-L$deps/lib -landroid-shmem -landroid-spawn -lavcodec -lavformat -lavutil -lswresample"
+          export LDFLAGS="-L$deps/lib -landroid-shmem -landroid-spawn"
           export LIBRARY_PATH="$deps/lib"
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
+          export FFMPEG_CFLAGS="-I$deps/include"
+          export FFMPEG_LIBS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
 
           ./configure \
+            --enable-archs=arm64ec,aarch64,i386 \
             --prefix=/usr \
             --host=aarch64-linux-android \
             --with-mingw=clang \
             --with-wine-tools=./wine-tools \
             --enable-win64 \
-            --disable-tests \
-            --without-x \
-            --without-wayland \
+            --enable-nls \
+            --with-pulse \
+            --disable-win16 \
+            --disable-opencl \
             --without-alsa \
+            --disable-tests \
+            --without-capi \
+            --without-coreaudio \
             --without-cups \
             --without-dbus \
-            --without-freetype \
+            --without-gphoto \
+            --without-gssapi \
+            --without-krb5 \
+            --without-netapi \
+            --without-oss \
+            --without-pcap \
+            --without-pcsclite \
+            --without-sane \
+            --without-udev \
+            --without-unwind \
+            --without-usb \
+            --without-v4l2 \
+            --without-wayland \
+            --without-xinerama \
+            --without-xxf86vm \
             --enable-wineandroid_drv=no
 
           make -j$(nproc) 2>&1 | tee build2.log | grep -E --color=never 'error:|warning:|undefined|Error |make(\[.*\])?:|ld\.lld:|clang(\+\+)?:|collect2:|Entering|Leaving|^make:'
@@ -339,8 +377,8 @@ jobs:
           tag_name: ${{ steps.release_tag.outputs.tag }}
           name: "Wine ARM64 for Termux + Full Rootfs"
           body: |
-            **Wine ARM64CE build for Termux**
-            - Includes Wine binaries and libraries (Proton + VRAM patches)
+            **Wine ARM64EC build for Termux**
+            - Built with ARM64EC support, Proton patches, and VRAM override
             - Termux rootfs (full) included as separate tarball
             - Set `WINE_VRAM_SIZE` (in MiB) to override VRAM.
 
