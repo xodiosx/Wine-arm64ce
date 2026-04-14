@@ -1,4 +1,4 @@
-name: xWine ARM64EC WOW64 Termux Build
+name: xWine script ARM64EC WOW64 Termux Build
 
 on:
   push:
@@ -8,178 +8,136 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
 
     steps:
-      # =========================
-      # Checkout Wine
-      # =========================
-      - name: Checkout Wine source
-        uses: actions/checkout@v4
-        with:
-          ref: upstream-arm64ec
-          fetch-depth: 0
+    # =========================
+    # Checkout
+    # =========================
+    - name: Checkout source
+      uses: actions/checkout@v4
 
-      # =========================
-      # Dependencies (FIXED: no freetype dependency issues)
-      # =========================
-      - name: Install dependencies
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt update
-          sudo apt install -y \
-            build-essential gcc-multilib g++-multilib \
-            flex bison pkg-config gettext \
-            clang llvm lld \
-            gcc-mingw-w64 \
-            libxml-libxml-perl libssl-dev \
-            libpulse-dev libsdl2-dev \
-            libdbus-1-dev libfontconfig-dev \
-            libgnutls28-dev libopenal-dev \
-            libfreetype-dev || true
+    # =========================
+    # Dependencies
+    # =========================
+    - name: Install dependencies
+      run: |
+        sudo dpkg --add-architecture i386
+        sudo apt update
+        sudo apt install -y \
+          build-essential gcc-multilib g++-multilib \
+          flex bison pkg-config gettext \
+          clang llvm lld \
+          git wget curl \
+          libxml-libxml-perl
 
-      # =========================
-      # LLVM MinGW (BYLAWS FIXED - ARM64EC SUPPORT)
-      # =========================
-      - name: Setup LLVM MinGW (Bylaws ARM64EC build)
-        run: |
-          sudo mkdir -p /opt
-          cd /opt
+    # =========================
+    # LLVM MinGW (ARM64EC FIX)
+    # =========================
+    - name: Setup LLVM MinGW (Bylaws)
+      run: |
+        sudo mkdir -p /opt
+        cd /opt
 
-          wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz -O llvm.tar.xz
+        wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz -O llvm.tar.xz
+        tar -xf llvm.tar.xz
+        rm llvm.tar.xz
 
-          tar -xf llvm.tar.xz
-          rm llvm.tar.xz
+        DIR=$(ls -d llvm-mingw-* | head -n 1)
+        sudo mv "$DIR" llvm-mingw
 
-          DIR=$(ls -d llvm-mingw-* | head -n 1)
+        echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
 
-          echo "Detected: $DIR"
+    # =========================
+    # Android NDK
+    # =========================
+    - name: Setup Android NDK
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r28c
 
-          sudo mv "$DIR" llvm-mingw
+    # =========================
+    # Wine tools (host build)
+    # =========================
+    - name: Build Wine tools
+      run: |
+        if [ ! -f configure ]; then
+          ./autogen.sh
+        fi
 
-          echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
+        mkdir wine-tools
+        cd wine-tools
 
-      # =========================
-      # Android NDK
-      # =========================
-      - name: Setup NDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r28c
+        ../configure \
+          --without-x \
+          --without-wayland \
+          --without-vulkan \
+          --without-freetype
 
-      # =========================
-      # Termux sysroot
-      # =========================
-      - name: Setup Termux sysroot
-        run: |
-          mkdir -p termux && cd termux
-          wget https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
-          tar xf termuxfs.tar
-          sudo mv data /data
-          sudo chown -R $(whoami):$(whoami) /data
-          mkdir -p /data/data/com.termux/files/usr/tmp
+        make -j$(nproc) __tooldeps__ nls/all
 
-      # =========================
-      # VRAM ONLY PATCH (your requirement)
-      # =========================
-      - name: Apply VRAM patch
-        run: |
-          FILE="dlls/winevulkan/vulkan.c"
-          [ -f "$FILE" ] && sed -i '/vkGetPhysicalDeviceMemoryProperties/a \
-          { const char *v=getenv("WINE_VRAM_SIZE"); uint64_t s=v?(uint64_t)atoll(v)*1024*1024:(uint64_t)2048*1024*1024; \
-          for(uint32_t i=0;i<object->memory_properties.memoryHeapCount;i++) \
-          if(object->memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
-          object->memory_properties.memoryHeaps[i].size=s; }' "$FILE"
+        cd ..
 
-      # =========================
-      # Wine tools (ARM64EC host tools)
-      # =========================
-      - name: Build Wine tools
-        run: |
-          if [ ! -f configure ]; then
-            ./autogen.sh
-          fi
+    # =========================
+    # MAIN BUILD (FIXED CORE)
+    # =========================
+    - name: Build Wine ARM64EC WOW64
+      run: |
+        export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        export PATH="/opt/llvm-mingw/bin:$TOOLCHAIN:$PATH"
 
-          mkdir wine-tools-build
-          cd wine-tools-build
+        export API=28
+        export TARGET=aarch64-linux-android
 
-          ../configure \
-            --without-x \
-            --without-vulkan \
-            --without-wayland \
-            --without-freetype
+        # ✅ Clean Android compiler
+        export CC="$TOOLCHAIN/${TARGET}${API}-clang"
+        export CXX="$TOOLCHAIN/${TARGET}${API}-clang++"
 
-          make -j$(nproc) __tooldeps__ nls/all
+        # ❌ CRITICAL FIX: remove Termux contamination
+        unset CPPFLAGS
+        unset PKG_CONFIG_PATH
+        unset PKG_CONFIG_LIBDIR
 
-          cd ..
-          mv wine-tools-build wine-tools
+        export CFLAGS="-O2 -Wno-error"
 
-      # =========================
-      # MAIN BUILD (ARM64EC + WOW64 i386)
-      # =========================
-      - name: Build Wine ARM64EC WOW64
-        run: |
-          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export PATH="/opt/llvm-mingw/bin:$TOOLCHAIN:$PATH"
+        # ✅ Android compatibility (IMPORTANT)
+        export LDFLAGS="-landroid-shmem -landroid-spawn"
 
-          export deps="/data/data/com.termux/files/usr"
-          export API=28
-          export TARGET=aarch64-linux-android
+        mkdir build && cd build
 
-          export CC="$TOOLCHAIN/${TARGET}${API}-clang"
-          export CXX="$TOOLCHAIN/${TARGET}${API}-clang++"
+        ../configure \
+          --host=${TARGET}${API} \
+          --prefix=/usr \
+          --enable-archs=arm64ec,aarch64,i386 \
+          --enable-win64 \
+          --with-mingw=clang \
+          --with-wine-tools=../wine-tools \
+          --without-x \
+          --without-wayland \
+          --without-vulkan \
+          --without-freetype \
+          --without-gnutls \
+          --without-cups \
+          --without-dbus \
+          --without-alsa \
+          --disable-tests
 
-          export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
-          export CPPFLAGS="-I$deps/include"
-          export CFLAGS="-O2 -Wno-error"
+        make -j$(nproc)
+        make install DESTDIR=../compiled-files
 
-          # Android runtime linking
-          export LDFLAGS="-L$deps/lib -landroid-shmem -landroid-spawn"
+    # =========================
+    # PACKAGE
+    # =========================
+    - name: Package
+      run: |
+        cd compiled-files
+        tar -czf wine-arm64ec-wow64.tar.gz *
+        mv wine-arm64ec-wow64.tar.gz ../
 
-          mkdir -p build && cd build
-
-          ../configure \
-            --host=${TARGET}${API} \
-            --prefix=/usr \
-            --enable-archs=arm64ec,aarch64,i386 \
-            --enable-win64 \
-            --with-mingw=clang \
-            --with-wine-tools=../wine-tools \
-            --enable-nls \
-            --without-x \
-            --without-wayland \
-            --without-vulkan \
-            --without-freetype \
-            --disable-tests \
-            --enable-wineandroid_drv=no
-
-          make -j$(nproc)
-          make install DESTDIR=../compiled-files
-
-      # =========================
-      # PACKAGE
-      # =========================
-      - name: Package Wine
-        run: |
-          cd compiled-files
-          tar -czf wine-arm64ec-wow64.tar.gz *
-          mv wine-arm64ec-wow64.tar.gz ../
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wine-arm64ec-wow64
-          path: wine-arm64ec-wow64.tar.gz
-
-      # =========================
-      # Release
-      # =========================
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: wine-arm64ec-${{ github.run_number }}
-          name: "Wine ARM64EC WOW64 Termux Build"
-          files: wine-arm64ec-wow64.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # =========================
+    # Upload
+    # =========================
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: wine-arm64ec-wow64
+        path: wine-arm64ec-wow64.tar.gz
