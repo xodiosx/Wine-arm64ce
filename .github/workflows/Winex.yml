@@ -155,7 +155,7 @@ jobs:
 
           ../configure \
             --host=${TARGET}${SDKVER} \
-              --prefix="$PREFIX_DIR" \
+              --prefix=${PREFIX_DIR} \
             --enable-archs=arm64ec,aarch64,i386 \
             --enable-win64 \
             --with-mingw=clang \
@@ -185,7 +185,7 @@ jobs:
             --enable-wineandroid_drv=no
 
           make -j$(nproc)
-          make install DESTDIR="$PREFIX_DIR"
+          make install DESTDIR=../compiled-files/
 
           # Ensure wine launcher exists
           #if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
