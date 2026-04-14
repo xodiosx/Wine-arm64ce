@@ -1,4 +1,4 @@
-name: xWine mz ARM64CE Termux
+name: xWine branch mz ARM64CE Termux
 
 on:
   push:
