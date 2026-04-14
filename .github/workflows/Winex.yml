@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Wine source (from upstream-arm64ec branch)
         uses: actions/checkout@v4
         with:
-          ref: upstream-arm64ec
+          ref: bleeding-edge
           fetch-depth: 0
 
       - name: Install dependencies
@@ -148,12 +148,12 @@ jobs:
           export SDL2_LIBS="-L$deps/lib -lSDL2"
           export FFMPEG_CFLAGS="-I$deps/include"
           export FFMPEG_LIBS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
-
+          mkdir compiled-files
           mkdir build && cd build
 
           ../configure \
             --host=${TARGET}${SDKVER} \
-            --prefix=/usr \
+            --prefix=../compiled-files \
             --enable-archs=arm64ec,aarch64,i386 \
             --enable-win64 \
             --with-mingw=clang \
@@ -186,17 +186,17 @@ jobs:
           make install DESTDIR=../compiled-files
 
           # Ensure wine launcher exists
-          if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
-            ln -s wine64 ../compiled-files/usr/bin/wine
-          fi
+          #if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
+            #ln -s wine64 ../compiled-files/usr/bin/wine
+          #fi
 
       # =========================
       # Strip & shrink
       # =========================
       - name: Strip binaries
         run: |
-          find compiled-files -type f -executable -exec strip --strip-unneeded {} \; || true
-          rm -rf compiled-files/usr/include
+          #find compiled-files -type f -executable -exec strip --strip-unneeded {} \; || true
+          #rm -rf compiled-files/usr/include
           rm -rf compiled-files/usr/share/doc
           rm -rf compiled-files/usr/share/man
 
@@ -231,9 +231,9 @@ jobs:
 
             **Files:**
             - `wine-termux-arm64ec.tar.gz` – Wine installation (extract to `/data/data/com.termux/files/usr`)
-            - `termux-rootfs.tar` – Full Termux rootfs
+            
           files: |
             wine-termux-arm64ec.tar.gz
-            termux-rootfs.tar
+            
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
