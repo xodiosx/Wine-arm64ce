@@ -150,10 +150,12 @@ jobs:
           export FFMPEG_LIBS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
           mkdir compiled-files
           mkdir build && cd build
+          export PREFIX_DIR="$(pwd)/../compiled-files/usr"
+          mkdir -p "$PREFIX_DIR"
 
           ../configure \
             --host=${TARGET}${SDKVER} \
-            --prefix=../compiled-files \
+              --prefix="$PREFIX_DIR" \
             --enable-archs=arm64ec,aarch64,i386 \
             --enable-win64 \
             --with-mingw=clang \
@@ -183,7 +185,7 @@ jobs:
             --enable-wineandroid_drv=no
 
           make -j$(nproc)
-          make install DESTDIR=../compiled-files
+          make install DESTDIR="$PREFIX_DIR"
 
           # Ensure wine launcher exists
           #if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
