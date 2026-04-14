@@ -1,14 +1,12 @@
-name: Wine xzm ARM64CE (Termux + Proton Patches + VRAM)
+name: Winex ARM64 (Termux + Proton Patches + VRAM)
 
 on:
   push:
   workflow_dispatch:
 
-
 jobs:
   build:
-    runs-on: ubuntu-latest
-  
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 
@@ -22,7 +20,6 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
-          # Install essential 32-bit development libraries
           sudo apt install -y \
             build-essential gcc-multilib g++-multilib \
             libc6-dev:i386 libc6:i386 linux-libc-dev:i386 \
@@ -45,13 +42,11 @@ jobs:
             libncurses5-dev:i386 libsane-dev:i386 libv4l-dev:i386 libgphoto2-dev:i386 \
             liblcms2-dev:i386 libcups2-dev:i386 libfontconfig1-dev:i386 libgsm1-dev:i386 \
             libtiff5-dev:i386 libmpg123-dev:i386 libopenal-dev:i386 libldap2-dev:i386 libjpeg-dev:i386
-          # Remove conflicting LLVM versions
           sudo apt purge -y llvm-18 clang-18
-          # Reinstall multilib to ensure proper configuration
           sudo apt install --reinstall -y gcc-multilib g++-multilib
 
       # =========================
-      # LLVM MinGW (pinned version, robust extraction)
+      # LLVM MinGW (pinned version)
       # =========================
       - name: Cache LLVM MinGW
         id: cache-llvm-mingw
@@ -94,7 +89,7 @@ jobs:
           mkdir -p /data/data/com.termux/files/usr/tmp
 
       # =========================
-      # Apply all patches (FEX, VRAM, pulseaudio fix)
+      # Apply all patches (FEX, VRAM, pulseaudio)
       # =========================
       - name: Apply comprehensive patches
         run: |
@@ -142,7 +137,7 @@ jobs:
             sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' "$FILE"
           fi
 
-          echo "== 8. FEX YMM state (unwind.h, fixed escaping) =="
+          echo "== 8. FEX YMM state (unwind.h) =="
           FILE="dlls/ntdll/unwind.h"
           if [ -f "$FILE" ] && ! grep -q 'CONTEXT_ARM64_FEX_YMMSTATE' "$FILE"; then
             sed -i '/ctx_flags_x64_to_arm/,/}/ {
@@ -266,7 +261,8 @@ jobs:
             --without-cups \
             --without-dbus \
             --without-freetype \
-            --enable-wineandroid_drv=no
+            --enable-wineandroid_drv=no \
+            --disable-winedmo
           make -j$(nproc)
 
       # =========================
@@ -305,7 +301,8 @@ jobs:
             --without-cups \
             --without-dbus \
             --without-freetype \
-            --enable-wineandroid_drv=no
+            --enable-wineandroid_drv=no \
+            --disable-winedmo
           make -j$(nproc)
           make install DESTDIR=compiled-files
 
