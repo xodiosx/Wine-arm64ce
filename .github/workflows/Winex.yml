@@ -69,16 +69,14 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
 
-      
       # =========================
-      # Build Wine tools (host)
+      # Build Wine tools (host) – no autogen.sh needed
       # =========================
       - name: Build Wine tools
         run: |
-          ./autogen.sh
           mkdir wine-tools-build
           cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-gstreamer --without-freetype
+          ../configure --without-x --without-vulkan --without-gstreamer 
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
@@ -172,7 +170,7 @@ jobs:
       - name: Strip binaries and clean up
         run: |
           cd wine-build
-          #find . -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true
+          # find . -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true
           rm -rf share/man share/doc
           cd ..
 
