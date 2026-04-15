@@ -60,7 +60,7 @@ jobs:
       - name: Setup Termux sysroot
         run: |
           mkdir termux && cd termux
-          wget https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/wine-14/termux-rootfs.tar
           tar xf termuxfs.tar
           sudo mv data /data
           sudo chown -R $(whoami):$(whoami) /data
@@ -158,6 +158,7 @@ jobs:
           mkdir -p "$PREFIX_DIR"
 
           ../configure \            
+            --build=x86_64-linux-gnu \
             --host=${TARGET}${SDKVER} \
             --prefix=${PREFIX_DIR} \
             --enable-archs=arm64ec,aarch64,i386 \
