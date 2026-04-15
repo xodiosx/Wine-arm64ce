@@ -163,9 +163,13 @@ jobs:
             --enable-nls \
             --with-pulse \
             --disable-win16 \
+            --disable-amd_ags_x64 \
             --disable-tests \
             --disable-opencl \
             --without-alsa \
+            --disable-tests \
+          --without-capi \
+          --without-coreaudio \
             --without-freetype \
             --without-cups \
             --without-dbus \
@@ -175,13 +179,13 @@ jobs:
             --without-oss \
             --without-pcap \
             --without-pcsclite \
-            --without-sane \
-            --without-udev \
+            --without-sane \            
             --without-usb \
             --without-v4l2 \
             --without-wayland \
             --without-xinerama \
             --without-xxf86vm \
+            --without-udev \
             --enable-wineandroid_drv=no
 
           make -j$(nproc)
