@@ -61,11 +61,11 @@ jobs:
         run: |
           mkdir termux && cd termux
           wget https://github.com/xodiosx/Wine-arm64ce/releases/download/wine-14/termux-rootfs.tar
-          tar xf termuxfs.tar
+          tar xf termux-rootfs.tar
           sudo mv data /data
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
-          cp termuxfs.tar ../termux-rootfs.tar
+          cp termux-rootfs.tar ../termux-rootfs.tar
 
       # =========================
       # VRAM Patch (corrected insertion points)
