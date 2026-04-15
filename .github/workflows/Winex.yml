@@ -179,7 +179,7 @@ jobs:
             --without-oss \
             --without-pcap \
             --without-pcsclite \
-            --without-sane \            
+            --without-sane \          
             --without-usb \
             --without-v4l2 \
             --without-wayland \
