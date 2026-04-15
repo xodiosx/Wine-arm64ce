@@ -191,8 +191,8 @@ jobs:
             --without-udev \
             --enable-wineandroid_drv=no
 
-          make -j$(nproc)
-          make install DESTDIR=../compiled-files/
+          make -s -j$(nproc)
+          make -s install DESTDIR=../compiled-files/
 
           # Ensure wine launcher exists
           #if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
@@ -215,6 +215,9 @@ jobs:
       - name: Package Wine
         run: |
           cd compiled-files
+          ls
+          ls usr
+          ls usr/arm64-v8a/bin/
           tar -czf wine-termux-arm64ec.tar.gz *
           mv wine-termux-arm64ec.tar.gz ../
 
