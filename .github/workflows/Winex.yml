@@ -157,8 +157,7 @@ jobs:
           export PREFIX_DIR="$(pwd)/../compiled-files/usr"
           mkdir -p "$PREFIX_DIR"
 
-          ../configure \
-            --build=x86_64-linux-gnu \
+          ../configure \            
             --host=${TARGET}${SDKVER} \
             --prefix=${PREFIX_DIR} \
             --enable-archs=arm64ec,aarch64,i386 \
