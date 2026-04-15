@@ -1,8 +1,8 @@
-name: xWine mz branch ARM64CE Termux
+name: xWin script test ARM64CE
 
 on:
   push:
-    branches: [ upstream-arm64ec ]
+    branches: [ bleeding-edge ]
   workflow_dispatch:
 
 jobs:
@@ -12,7 +12,7 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Wine source (from upstream-arm64ec branch)
+      - name: Checkout Wine source (from wine branch)
         uses: actions/checkout@v4
         with:
           ref: bleeding-edge
@@ -28,9 +28,11 @@ jobs:
             gcc-mingw-w64 libz-mingw-w64-dev \
             clang lld llvm \
             libxml-libxml-perl libssl-dev \
-            libfreetype-dev libpulse-dev libsdl2-dev \
+            libfreetype-dev libpulse-dev libsdl2-dev libfreetype-dev:i386 libfontconfig-dev:i386 \
             libdbus-1-dev libfontconfig-dev \
-            libgnutls28-dev libopenal-dev
+            libgnutls28-dev libopenal-dev \
+            libasound2-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer1.0-dev libglib2.0-dev
 
       # =========================
       # LLVM MinGW (robust extraction)
@@ -65,39 +67,8 @@ jobs:
           sudo mv data /data
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
-          cp termux-rootfs.tar ../termux-rootfs.tar
 
-      # =========================
-      # VRAM Patch (corrected insertion points)
-      # =========================
-      - name: Apply VRAM patch
-        run: |
-          echo "Applying VRAM patches..."
 
-          FILE="dlls/winevulkan/vulkan.c"
-          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
-            sed -i '/vkGetPhysicalDeviceMemoryProperties(host_physical_device, \&object->memory_properties);/a \
-            { \
-                const char *v = getenv("WINE_VRAM_SIZE"); \
-                uint64_t s = v ? (uint64_t)atoll(v)*1024*1024 : (uint64_t)2048*1024*1024; \
-                uint32_t k; \
-                for (k=0; k<object->memory_properties.memoryHeapCount; k++) \
-                    if (object->memory_properties.memoryHeaps[k].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
-                        object->memory_properties.memoryHeaps[k].size = s; \
-            }' "$FILE"
-          fi
-
-          FILE="dlls/wined3d/adapter_gl.c"
-          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
-            sed -i '/gl_info->vidmem = vidmem;/a \
-            { const char *v = getenv("WINE_VRAM_SIZE"); if (v) gl_info->vidmem = (uint64_t)atoll(v) * 1024 * 1024; }' "$FILE"
-          fi
-
-          FILE="dlls/wined3d/adapter_vk.c"
-          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
-            sed -i '/device->adapter.vidmem = vidmem;/a \
-            { const char *v = getenv("WINE_VRAM_SIZE"); if (v) device->adapter.vidmem = (uint64_t)atoll(v) * 1024 * 1024; }' "$FILE"
-          fi
 
       # =========================
       # Build Wine tools (host)
@@ -107,146 +78,145 @@ jobs:
           ./autogen.sh
           mkdir wine-tools-build
           cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-gstreamer --without-freetype
+          ../configure --without-x --without-vulkan --without-gstreamer
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
 
       # =========================
-      # Build Wine ARM64EC (matching local script)
+      # Build Wine ARM64EC (EXACT replica of local script)
       # =========================
       - name: Build Wine ARM64EC
         run: |
+          # === Environment variables identical to local script ===
+          export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export LLVM_MINGW="/opt/llvm-mingw/bin"
-          export PATH="$LLVM_MINGW:$TOOLCHAIN:$PATH"
-
+          export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
+          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export deps="/data/data/com.termux/files/usr"
+          export ARCH="aarch64"
+          export SDKVER="28"
           export TARGET="aarch64-linux-android"
           export SDKVER="28"
+          export install_prefix="$WORKDIR/wine-build"
+          export winetools_dir="./wine-tools"
+          export WINEARCH="arm64ec,aarch64,i386"
 
-          export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
-          export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
+          export CC="$TOOLCHAIN/$TARGET$SDKVER-clang"
           export AS=$CC
+          export CXX="$TOOLCHAIN/$TARGET$SDKVER-clang++"
           export AR="$TOOLCHAIN/llvm-ar"
+          export LD="$TOOLCHAIN/ld"
           export RANLIB="$TOOLCHAIN/llvm-ranlib"
           export STRIP="$TOOLCHAIN/llvm-strip"
+          export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
-          export CPPFLAGS="-I$deps/include"
+          export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
+          #export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
+          export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-
-          # IMPORTANT: Android libraries go into X_LIBS, not global LDFLAGS (avoids preloader errors)
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
-          export X_LIBS="-L$deps/lib -landroid-shmem -landroid-spawn"
-          export LIBRARY_PATH="$deps/lib"
-
+          export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export X_CFLAGS="-I$deps/include"
+          export X_LIBS="-L$deps/lib -landroid-shmem"
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
-          export FFMPEG_CFLAGS="-I$deps/include"
-          export FFMPEG_LIBS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
+          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include -I$deps/glib-2.0/include -I$deps/lib/gstreamer-1.0/include"
+          export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
+          export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
+          export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
-          # Verify host triplet
-          echo "Host triplet: ${TARGET}${SDKVER}"
-
-          mkdir -p compiled-files
-          mkdir -p build && cd build
-          export PREFIX_DIR="$(pwd)/../compiled-files/usr"
-          mkdir -p "$PREFIX_DIR"
-
-          ../configure \            
-            --build=x86_64-linux-gnu \
-            --host=${TARGET}${SDKVER} \
-            --prefix=${PREFIX_DIR} \
+          # === Configure with exact flags from local script ===
+          ./configure \
             --enable-archs=arm64ec,aarch64,i386 \
-            --enable-win64 \
+            --prefix=${install_prefix} \
+            --host=${TARGET}${SDKVER} \
             --with-mingw=clang \
-            --with-wine-tools=../wine-tools \
+            --with-wine-tools="$winetools_dir" \
+            --enable-win64 \
             --enable-nls \
             --with-pulse \
+            --with-alsa \
             --disable-win16 \
-            --disable-amd_ags_x64 \
-            --disable-tests \
             --disable-opencl \
-            --without-alsa \
+            --disable-tests \
             --without-capi \
             --without-coreaudio \
-            --without-freetype \
             --without-cups \
             --without-dbus \
             --without-gphoto \
+            --without-gssapi \
             --without-krb5 \
             --without-netapi \
             --without-oss \
             --without-pcap \
             --without-pcsclite \
             --without-sane \
+            --without-udev \
+            --without-unwind \
             --without-usb \
             --without-v4l2 \
             --without-wayland \
             --without-xinerama \
             --without-xxf86vm \
-            --without-udev \
+            --disable-amd_ags_x64 \
             --enable-wineandroid_drv=no
 
-          make -s -j$(nproc)
-          make -s install DESTDIR=../compiled-files/
+          # === Build and install ===
+          make -j$(nproc)
+          make install -j$(nproc)
 
-          # Ensure wine launcher exists
-          #if [ ! -f ../compiled-files/usr/bin/wine ] && [ -f ../compiled-files/usr/bin/wine64 ]; then
-            #ln -s wine64 ../compiled-files/usr/bin/wine
-          #fi
+          # === Verify installation ===
+          ls -la "$install_prefix/"
 
       # =========================
-      # Strip & shrink
+      # Strip binaries (reduce size)
       # =========================
       - name: Strip binaries
         run: |
-          #find compiled-files -type f -executable -exec strip --strip-unneeded {} \; || true
-          #rm -rf compiled-files/usr/include
-          rm -rf compiled-files/usr/share/doc
-          rm -rf compiled-files/usr/share/man
+          #cd $install_prefix
+          #find wine-build -type f -executable -exec strip --strip-unneeded {} \; || true
+          # Remove unnecessary static libraries and headers to save space
+          #rm -rf wine-build/include
+          rm -rf wine-build/share/man
+          rm -rf wine-build/share/doc
+          
 
       # =========================
       # Package Wine
       # =========================
       - name: Package Wine
         run: |
-          cd compiled-files
-          ls
-          ls usr
-          ls usr/arm64-v8a/bin/
-          tar -czf wine-termux-arm64ec.tar.gz *
-          mv wine-termux-arm64ec.tar.gz ../
+          cd wine-build
+          ls -a
+          tar -cJf ../wine-termux-arm64ec.tar.xz .
+          cd ..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: wine-arm64ec
-          path: wine-termux-arm64ec.tar.gz
+          path: wine-termux-arm64ec.tar.xz
 
       # =========================
-      # Create Release with both Wine and Termux rootfs
+      # Create Release (Wine only)
       # =========================
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: wine-${{ github.run_number }}
-          name: Wine ARM64EC (Termux) + Rootfs
+          tag_name: wine-${{ github.sha }}
+          name: Wine ARM64EC for Termux bleeding-edge
           body: |
             **Wine ARM64EC build for Termux**
-            - Built with ARM64EC support and VRAM override patch.
-            - Full Termux rootfs included (extract to `/data/data/com.termux/files`).
-            - Set `WINE_VRAM_SIZE` (in MiB) to override VRAM.
+            - Built with ARM64EC support 
+            - Full installation (bin, lib, share) – extract to `/data/data/com.termux/files/usr`
+            - 
 
-            **Files:**
-            - `wine-termux-arm64ec.tar.gz` – Wine installation (extract to `/data/data/com.termux/files/usr`)
-            
-          files: |
-            wine-termux-arm64ec.tar.gz
-            
+            **File:** `wine-termux-arm64ec.tar.xz`
+          files: wine-termux-arm64ec.tar.xz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
