@@ -142,7 +142,8 @@ jobs:
 
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
-          export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
+          #export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
+          export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
           export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
