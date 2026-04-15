@@ -125,7 +125,7 @@ jobs:
           export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
           ./configure \
-            --enable-archs=arm64ec,aarch64,i386 \
+            --enable-archs=aarch64,i386 \
             --prefix=${install_prefix} \
             --host=${TARGET}${SDKVER} \
             --with-mingw=clang \
