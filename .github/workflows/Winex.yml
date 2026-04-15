@@ -148,14 +148,19 @@ jobs:
           export SDL2_LIBS="-L$deps/lib -lSDL2"
           export FFMPEG_CFLAGS="-I$deps/include"
           export FFMPEG_LIBS="-L$deps/lib -lavcodec -lavformat -lavutil -lswresample"
-          mkdir compiled-files
-          mkdir build && cd build
+
+          # Verify host triplet
+          echo "Host triplet: ${TARGET}${SDKVER}"
+
+          mkdir -p compiled-files
+          mkdir -p build && cd build
           export PREFIX_DIR="$(pwd)/../compiled-files/usr"
           mkdir -p "$PREFIX_DIR"
 
           ../configure \
+            --build=x86_64-linux-gnu \
             --host=${TARGET}${SDKVER} \
-              --prefix=${PREFIX_DIR} \
+            --prefix=${PREFIX_DIR} \
             --enable-archs=arm64ec,aarch64,i386 \
             --enable-win64 \
             --with-mingw=clang \
@@ -167,9 +172,8 @@ jobs:
             --disable-tests \
             --disable-opencl \
             --without-alsa \
-            --disable-tests \
-          --without-capi \
-          --without-coreaudio \
+            --without-capi \
+            --without-coreaudio \
             --without-freetype \
             --without-cups \
             --without-dbus \
@@ -179,7 +183,7 @@ jobs:
             --without-oss \
             --without-pcap \
             --without-pcsclite \
-            --without-sane \          
+            --without-sane \
             --without-usb \
             --without-v4l2 \
             --without-wayland \
