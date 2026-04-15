@@ -35,7 +35,7 @@ jobs:
             libgstreamer1.0-dev libglib2.0-dev
 
       # =========================
-      # LLVM MinGW (robust extraction)
+      # LLVM MinGW
       # =========================
       - name: Setup LLVM MinGW
         run: |
@@ -69,7 +69,7 @@ jobs:
           mkdir -p /data/data/com.termux/files/usr/tmp
 
       # =========================
-      # VRAM Patch (exact from earlier correction)
+      # VRAM Patch
       # =========================
       - name: Apply VRAM patch
         run: |
@@ -114,11 +114,13 @@ jobs:
           mv wine-tools-build wine-tools
 
       # =========================
-      # Build Wine ARM64EC (EXACT replica of local script)
+      # Build Wine ARM64EC
       # =========================
       - name: Build Wine ARM64EC
         run: |
-          # === Environment variables identical to local script ===
+          set -e
+          set -o pipefail
+
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
@@ -128,8 +130,7 @@ jobs:
           export SDKVER="28"
           export TARGET="$ARCH-linux-android"
           export install_prefix="$WORKDIR/wine-build"
-          export winetools_dir="./wine-tools"
-          export WINEARCH="arm64ec,aarch64,i386"
+          export winetools_dir="$WORKDIR/wine-tools"
 
           export CC="$TOOLCHAIN/$TARGET$SDKVER-clang"
           export AS=$CC
@@ -142,7 +143,6 @@ jobs:
 
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
-          #export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
           export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
@@ -154,19 +154,20 @@ jobs:
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
-          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include -I$deps/glib-2.0/include -I$deps/lib/gstreamer-1.0/include"
+          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include"
           export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
           export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
           export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
-          # === Configure with exact flags from local script ===
+          # === Configure (no trailing spaces, added --build) ===
           ./configure \
-            --enable-archs=arm64ec,aarch64,i386 \
-            --prefix="$install_prefix" \
+            --build=x86_64-linux-gnu \
             --host="$TARGET$SDKVER" \
+            --prefix="$install_prefix" \
+            --enable-archs=arm64ec,aarch64,i386 \
+            --enable-win64 \
             --with-mingw=clang \
             --with-wine-tools="$winetools_dir" \
-            --enable-win64 \
             --enable-nls \
             --with-pulse \
             --with-alsa \
@@ -196,20 +197,27 @@ jobs:
             --disable-amd_ags_x64 \
             --enable-wineandroid_drv=no
 
-          # === Build and install ===
-          make -j$(nproc)
-          make install -j$(nproc)
+          # === Build with silent mode (errors/warnings only) ===
+          echo "::group::Build (silent mode - only errors shown)"
+          if ! make -s -j$(nproc); then
+            echo "Build failed. Showing last 200 lines of full log:"
+            tail -n 200 build.log || true
+            exit 1
+          fi
+          echo "::endgroup::"
 
-          # === Verify installation ===
+          # === Install (also silent) ===
+          make -s install -j$(nproc)
+
+          # === Verify ===
           ls -la "$install_prefix/bin/"
 
       # =========================
-      # Strip binaries (reduce size)
+      # Strip binaries
       # =========================
       - name: Strip binaries
         run: |
           find wine-build -type f -executable -exec strip --strip-unneeded {} \; || true
-          # Remove unnecessary static libraries and headers to save space
           rm -rf wine-build/include
           rm -rf wine-build/share/man
           rm -rf wine-build/share/doc
@@ -232,7 +240,7 @@ jobs:
           path: wine-termux-arm64ec.tar.xz
 
       # =========================
-      # Create Release (Wine only)
+      # Create Release
       # =========================
       - name: Create Release
         uses: softprops/action-gh-release@v2
