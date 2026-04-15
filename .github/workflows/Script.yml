@@ -62,8 +62,8 @@ jobs:
       - name: Setup Termux sysroot
         run: |
           mkdir termux && cd termux
-          wget https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
-          tar xf termuxfs.tar
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/wine-14/termux-rootfs.tar
+          tar xf termux-rootfs.tar
           sudo mv data /data
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
