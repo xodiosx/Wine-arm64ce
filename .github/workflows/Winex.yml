@@ -138,6 +138,7 @@ jobs:
             --disable-opencl \
             --disable-tests \
             --without-capi \
+            --without-esync \
             --without-coreaudio \
             --without-cups \
             --without-dbus \
