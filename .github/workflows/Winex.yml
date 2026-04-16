@@ -1,9 +1,13 @@
-name: xWine mz Patchs ARM64CE Termux (longjunyu2/wine-custom)
+name: xWine mz patch ARM64CE Termux (longjunyu2/wine-custom)
 
 on:
   push:
     branches: [ bleeding-edge ]
   workflow_dispatch:
+
+env:
+  LLVMMINGW_DATE: 20250920
+  LLVMMINGW_NAME: llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64
 
 jobs:
   build:
@@ -19,32 +23,45 @@ jobs:
           ref: custom-wine-9.16
           fetch-depth: 0
 
-      - name: Install dependencies
+      - name: Install dependencies (minimal, no clang/llvm/mingw-w64)
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
           sudo apt install -y \
             build-essential gcc-multilib g++-multilib \
             flex bison unzip pkg-config gettext \
-            gcc-mingw-w64 libz-mingw-w64-dev \
-            clang lld llvm \
+            binutils-aarch64-linux-gnu \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross \
             libxml-libxml-perl libssl-dev \
             libfreetype-dev libpulse-dev libsdl2-dev libfreetype-dev:i386 libfontconfig-dev:i386 \
             libdbus-1-dev libfontconfig-dev \
             libgnutls28-dev libopenal-dev \
             libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev
+          # Clean apt cache (huge space saver)
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          # Remove unnecessary docs/locales
+          sudo rm -rf /usr/share/doc/*
+          sudo rm -rf /usr/share/man/*
+          sudo rm -rf /usr/share/locale/*
 
-      - name: Setup LLVM MinGW
+      - name: Setup LLVM MinGW (with forced symlinks)
         run: |
           sudo mkdir -p /opt
           cd /opt
-          sudo wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz -O llvm-mingw.tar.xz
-          sudo tar -xf llvm-mingw.tar.xz
-          EXTRACTED_DIR=$(tar tf llvm-mingw.tar.xz | head -1 | cut -f1 -d'/')
-          sudo mv "$EXTRACTED_DIR" llvm-mingw
-          sudo rm llvm-mingw.tar.xz
-          echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
+          sudo wget -q https://github.com/mstorsjo/llvm-mingw/releases/download/${{ env.LLVMMINGW_DATE }}/${{ env.LLVMMINGW_NAME }}.tar.xz
+          sudo tar -xJf ${{ env.LLVMMINGW_NAME }}.tar.xz
+          sudo rm ${{ env.LLVMMINGW_NAME }}.tar.xz
+          export LLVM_MINGW=/opt/${{ env.LLVMMINGW_NAME }}
+          echo "$LLVM_MINGW/bin" >> $GITHUB_PATH
+          # HARD override to avoid wrong clang usage
+          sudo ln -sf $LLVM_MINGW/bin/clang /usr/bin/clang
+          sudo ln -sf $LLVM_MINGW/bin/clang++ /usr/bin/clang++
+          sudo ln -sf $LLVM_MINGW/bin/lld /usr/bin/lld
+          # Verify
+          clang --version
+          which clang
 
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
@@ -60,20 +77,32 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
 
+      # =========================
+      # Install missing .deb packages into the sysroot (fixed permissions)
+      # =========================
       - name: Install libandroid-shmem and libandroid-spawn .deb packages
         run: |
+          # Download .deb files
           wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
           wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn_0.3_aarch64.deb
 
           for deb in *.deb; do
             ar x "$deb"
-            tar -xf data.tar.* -C /
+            tar -xf data.tar.* -C /tmp  # extract to temp dir
+            # Copy contents to /data (preserve ownership and permissions)
+            sudo cp -a /tmp/data/* /
+            rm -rf /tmp/data
             rm -f data.tar.* debian-binary control.tar.*
           done
+
           echo "Packages installed into /data/data/com.termux/files/usr"
 
       - name: Build Wine tools (host)
         run: |
+          # Force llvm-mingw compiler for host tools as well
+          export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
+          export CC=clang
+          export CXX=clang++
           if [ ! -f ./configure ]; then
             ./autogen.sh
           fi
@@ -84,68 +113,53 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
 
-      - name: Build Wine ARM64EC (hybrid WoW64)
+      - name: Build Wine ARM64EC (without arm64ec, using llvm-mingw)
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
+          export LLVM_MINGW_TOOLCHAIN="/opt/${{ env.LLVMMINGW_NAME }}/bin"
+          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export deps="/data/data/com.termux/files/usr"
-          export SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export ARCH="aarch64"
           export SDKVER="28"
           export TARGET="aarch64-linux-android"
           export install_prefix="$WORKDIR/wine-build"
           export winetools_dir="./wine-tools"
 
-          # ------------------------------------------------------------
-          # 1. Android (Unix) compiler (NDK)
-          # ------------------------------------------------------------
-          export CC="$TOOLCHAIN/$TARGET$SDKVER-clang"
-          export AS=$CC
-          export CXX="$TOOLCHAIN/$TARGET$SDKVER-clang++"
-          export AR="$TOOLCHAIN/llvm-ar"
-          export LD="$TOOLCHAIN/ld"
-          export RANLIB="$TOOLCHAIN/llvm-ranlib"
-          export STRIP="$TOOLCHAIN/llvm-strip"
-
-          # ------------------------------------------------------------
-          # 2. Mingw (PE) compiler – make it first in PATH so Wine detects it
-          # ------------------------------------------------------------
-          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
-          # Wine will find aarch64-w64-mingw32-clang and use it for PE.
+          # Force llvm-mingw toolchain
+          export CC="clang --target=aarch64-linux-gnu"
+          export CXX="clang++ --target=aarch64-linux-gnu"
+          export CROSSCC="arm64ec-w64-mingw32-clang"   # may not be used but safe
+          export CROSSCXX="arm64ec-w64-mingw32-clang++"
+          export LD=lld
+          export AR="$LLVM_MINGW_TOOLCHAIN/llvm-ar"
+          export RANLIB="$LLVM_MINGW_TOOLCHAIN/llvm-ranlib"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
+          export STRIP="$LLVM_MINGW_TOOLCHAIN/llvm-strip"
 
-          # ------------------------------------------------------------
-          # 3. pkg-config – fixed to use PKG_CONFIG_PATH (Wine's preference)
-          # ------------------------------------------------------------
-          export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig:$SYSROOT/usr/lib/pkgconfig"
-          export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"   # fallback for older systems
-
-          # ------------------------------------------------------------
-          # 4. Compiler and linker flags
-          # ------------------------------------------------------------
-          export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
+          export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
+          export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
+          export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          export LDFLAGS="-L$deps/lib -L$SYSROOT/usr/lib/aarch64-linux-android -Wl,-rpath-link=$deps/lib -Wl,-rpath-link=$SYSROOT/usr/lib/aarch64-linux-android"
-          export LIBS="-landroid-shmem -landroid-spawn"
-
-          export LIBRARY_PATH="$deps/lib:$SYSROOT/usr/lib/aarch64-linux-android"
-
-          # Optional: Library hints (some configure scripts still need them)
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -landroid-shmem -landroid-spawn"
+          export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export X_CFLAGS="-I$deps/include"
+          export X_LIBS="-L$deps/lib -landroid-shmem"
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
+          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include -I$deps/glib-2.0/include -I$deps/lib/gstreamer-1.0/include"
+          export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
+          export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
+          export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
-          # ------------------------------------------------------------
-          # 5. Configure Wine
-          # ------------------------------------------------------------
           ./configure \
-            --enable-archs=aarch64,i386 \
+            --enable-archs=arm64ec,aarch64,i386 \
             --prefix=${install_prefix} \
             --host=${TARGET}${SDKVER} \
-            --with-mingw \
+            --with-mingw=clang \
             --with-wine-tools="$winetools_dir" \
             --enable-win64 \
             --enable-nls \
@@ -205,9 +219,8 @@ jobs:
           tag_name: wine-${{ github.run_id }}
           name: Wine ARM64EC for Termux (longjunyu2/wine-custom 9.16)
           body: |
-            **Wine hybrid WoW64 build for Termux (aarch64 + i386)**
+            **Wine ARM64EC build for Termux**
             - Source: longjunyu2/wine-custom (custom-wine-9.16)
-            - **Note:** This is a hybrid WoW64 build, not true ARM64EC (requires patched source).
             - Includes full gamepad patches (dinput, dinput8, xinput)
             - Extract to `/data/data/com.termux/files/usr`
           files: wine-termux-arm64ec.tar.xz
