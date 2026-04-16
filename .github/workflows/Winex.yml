@@ -31,7 +31,7 @@ jobs:
             build-essential gcc-multilib g++-multilib \
             flex bison unzip pkg-config gettext \
             binutils-aarch64-linux-gnu \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross \
+              libc6-dev-arm64-cross \
             libxml-libxml-perl libssl-dev \
             libfreetype-dev libpulse-dev libsdl2-dev libfreetype-dev:i386 libfontconfig-dev:i386 \
             libdbus-1-dev libfontconfig-dev \
