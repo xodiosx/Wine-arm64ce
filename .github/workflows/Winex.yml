@@ -46,22 +46,40 @@ jobs:
           sudo rm -rf /usr/share/man/*
           sudo rm -rf /usr/share/locale/*
 
-      - name: Setup LLVM MinGW (with forced symlinks)
+      - name: Setup LLVM MinGW (bylaws release with retry)
         run: |
           sudo mkdir -p /opt
           cd /opt
-          sudo wget -q https://github.com/mstorsjo/llvm-mingw/releases/download/${{ env.LLVMMINGW_DATE }}/${{ env.LLVMMINGW_NAME }}.tar.xz
-          sudo tar -xJf ${{ env.LLVMMINGW_NAME }}.tar.xz
-          sudo rm ${{ env.LLVMMINGW_NAME }}.tar.xz
+
+          URL="https://github.com/bylaws/llvm-mingw/releases/download/${{ env.LLVMMINGW_DATE }}/${{ env.LLVMMINGW_NAME }}.tar.xz"
+
+          echo "Downloading: $URL"
+
+          # FIXED wget with retry logic
+          sudo wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 "$URL" -O llvm-mingw.tar.xz
+
+          # safety check
+          [ -f llvm-mingw.tar.xz ] || { echo "❌ Download failed"; exit 1; }
+
+          sudo tar -xJf llvm-mingw.tar.xz
+          sudo rm llvm-mingw.tar.xz
+
           export LLVM_MINGW=/opt/${{ env.LLVMMINGW_NAME }}
+
           echo "$LLVM_MINGW/bin" >> $GITHUB_PATH
-          # HARD override to avoid wrong clang usage
+
+          # override clang
           sudo ln -sf $LLVM_MINGW/bin/clang /usr/bin/clang
           sudo ln -sf $LLVM_MINGW/bin/clang++ /usr/bin/clang++
           sudo ln -sf $LLVM_MINGW/bin/lld /usr/bin/lld
-          # Verify
+
+          # verify
           clang --version
           which clang
+
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
 
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
