@@ -1,4 +1,4 @@
-name: xWine mz script ARM64CE Termux (longjunyu2/wine-custom)
+name: xWine mz Patchs ARM64CE Termux (longjunyu2/wine-custom)
 
 on:
   push:
@@ -60,9 +60,20 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
 
+      - name: Install libandroid-shmem and libandroid-spawn .deb packages
+        run: |
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn_0.3_aarch64.deb
+
+          for deb in *.deb; do
+            ar x "$deb"
+            tar -xf data.tar.* -C /
+            rm -f data.tar.* debian-binary control.tar.*
+          done
+          echo "Packages installed into /data/data/com.termux/files/usr"
+
       - name: Build Wine tools (host)
         run: |
-          # If configure is missing, generate it
           if [ ! -f ./configure ]; then
             ./autogen.sh
           fi
@@ -73,19 +84,22 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
 
-      - name: Build Wine ARM64EC
+      - name: Build Wine ARM64EC (hybrid WoW64)
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
-          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export deps="/data/data/com.termux/files/usr"
+          export SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export ARCH="aarch64"
           export SDKVER="28"
           export TARGET="aarch64-linux-android"
           export install_prefix="$WORKDIR/wine-build"
           export winetools_dir="./wine-tools"
 
+          # ------------------------------------------------------------
+          # 1. Android (Unix) compiler (NDK)
+          # ------------------------------------------------------------
           export CC="$TOOLCHAIN/$TARGET$SDKVER-clang"
           export AS=$CC
           export CXX="$TOOLCHAIN/$TARGET$SDKVER-clang++"
@@ -93,32 +107,45 @@ jobs:
           export LD="$TOOLCHAIN/ld"
           export RANLIB="$TOOLCHAIN/llvm-ranlib"
           export STRIP="$TOOLCHAIN/llvm-strip"
+
+          # ------------------------------------------------------------
+          # 2. Mingw (PE) compiler – make it first in PATH so Wine detects it
+          # ------------------------------------------------------------
+          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
+          # Wine will find aarch64-w64-mingw32-clang and use it for PE.
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
-          export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
-          export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
-          export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          # ------------------------------------------------------------
+          # 3. pkg-config – fixed to use PKG_CONFIG_PATH (Wine's preference)
+          # ------------------------------------------------------------
+          export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig:$SYSROOT/usr/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"   # fallback for older systems
+
+          # ------------------------------------------------------------
+          # 4. Compiler and linker flags
+          # ------------------------------------------------------------
+          export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          #export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -landroid-shmem -landroid-spawn"
-          export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-          export X_CFLAGS="-I$deps/include"
-          export X_LIBS="-L$deps/lib -landroid-shmem"
+          export LDFLAGS="-L$deps/lib -L$SYSROOT/usr/lib/aarch64-linux-android -Wl,-rpath-link=$deps/lib -Wl,-rpath-link=$SYSROOT/usr/lib/aarch64-linux-android"
+          export LIBS="-landroid-shmem -landroid-spawn"
+
+          export LIBRARY_PATH="$deps/lib:$SYSROOT/usr/lib/aarch64-linux-android"
+
+          # Optional: Library hints (some configure scripts still need them)
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
-          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include -I$deps/glib-2.0/include -I$deps/lib/gstreamer-1.0/include"
-          export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
-          export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
-          export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
+          # ------------------------------------------------------------
+          # 5. Configure Wine
+          # ------------------------------------------------------------
           ./configure \
             --enable-archs=aarch64,i386 \
             --prefix=${install_prefix} \
             --host=${TARGET}${SDKVER} \
-            --with-mingw=clang \
+            --with-mingw \
             --with-wine-tools="$winetools_dir" \
             --enable-win64 \
             --enable-nls \
@@ -178,8 +205,9 @@ jobs:
           tag_name: wine-${{ github.run_id }}
           name: Wine ARM64EC for Termux (longjunyu2/wine-custom 9.16)
           body: |
-            **Wine ARM64EC build for Termux**
+            **Wine hybrid WoW64 build for Termux (aarch64 + i386)**
             - Source: longjunyu2/wine-custom (custom-wine-9.16)
+            - **Note:** This is a hybrid WoW64 build, not true ARM64EC (requires patched source).
             - Includes full gamepad patches (dinput, dinput8, xinput)
             - Extract to `/data/data/com.termux/files/usr`
           files: wine-termux-arm64ec.tar.xz
