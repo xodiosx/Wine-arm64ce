@@ -106,7 +106,9 @@ jobs:
 
           for deb in *.deb; do
             ar x "$deb"
-            tar -xf data.tar.* -C /tmp  # extract to temp dir
+            #tar -xf data.tar.* -C /tmp  # extract to temp dir
+           tar -xf data.tar.* -C /tmp \
+            --no-same-owner --no-same-permissions --warning=no-unknown-keyword
             # Copy contents to /data (preserve ownership and permissions)
             sudo cp -a /tmp/data/* /
             rm -rf /tmp/data
