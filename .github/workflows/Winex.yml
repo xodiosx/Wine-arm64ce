@@ -1,4 +1,4 @@
-name: xWine mz Patch ARM64CE Termux
+name: xWine mz Patchs ARM64CE Termux
 
 on:
   push:
@@ -12,20 +12,25 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Wine source (from wine branch)
+      - name: Checkout Wine source (bleeding-edge)
         uses: actions/checkout@v4
         with:
           ref: bleeding-edge
           fetch-depth: 0
 
       # =========================
-      # Apply xinput/dinput patch from your zip
+      # Apply FULL dinput/xinput patch from custom Wine 9.16
       # =========================
-      - name: Apply xinput/dinput patch from zip
+      - name: Apply full dinput/xinput patch
         run: |
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/xinput-dlls.zip
-          unzip -o xinput-dlls.zip
-          echo "Patch applied successfully"
+          git clone --depth 1 --branch custom-wine-9.16 https://github.com/coffincolors/wine-custom.git ../wine-custom
+          # Copy all modified dinput files
+          cp -f ../wine-custom/dlls/dinput/* dlls/dinput/ 2>/dev/null || true
+          # Copy all modified xinput files for each version
+          for ver in 1_1 1_2 1_3 1_4 9_1_0 uap; do
+            cp -f ../wine-custom/dlls/xinput$ver/* dlls/xinput$ver/ 2>/dev/null || true
+          done
+          echo "Full patch applied"
 
       - name: Install dependencies
         run: |
@@ -43,9 +48,6 @@ jobs:
             libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev
 
-      # =========================
-      # LLVM MinGW (robust extraction)
-      # =========================
       - name: Setup LLVM MinGW
         run: |
           sudo mkdir -p /opt
@@ -57,17 +59,11 @@ jobs:
           sudo rm llvm-mingw.tar.xz
           echo "/opt/llvm-mingw/bin" >> $GITHUB_PATH
 
-      # =========================
-      # Android NDK
-      # =========================
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r28c
 
-      # =========================
-      # Termux sysroot
-      # =========================
       - name: Setup Termux sysroot
         run: |
           mkdir termux && cd termux
@@ -77,9 +73,6 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
 
-      # =========================
-      # Build Wine tools (host)
-      # =========================
       - name: Build Wine tools
         run: |
           ./autogen.sh
@@ -90,12 +83,8 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
 
-      # =========================
-      # Build Wine ARM64EC
-      # =========================
       - name: Build Wine ARM64EC
         run: |
-          # === Environment variables identical to local script ===
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
@@ -106,7 +95,6 @@ jobs:
           export TARGET="aarch64-linux-android"
           export install_prefix="$WORKDIR/wine-build"
           export winetools_dir="./wine-tools"
-          export WINEARCH="arm64ec,aarch64,i386"
 
           export CC="$TOOLCHAIN/$TARGET$SDKVER-clang"
           export AS=$CC
@@ -135,7 +123,6 @@ jobs:
           export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
           export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
-          # === Configure with exact flags from local script ===
           ./configure \
             --enable-archs=arm64ec,aarch64,i386 \
             --prefix=${install_prefix} \
@@ -171,32 +158,20 @@ jobs:
             --disable-amd_ags_x64 \
             --enable-wineandroid_drv=no
 
-          # === Build and install ===
           make -j$(nproc)
           make install -j$(nproc)
 
-          # === Verify installation ===
           ls -la "$install_prefix/"
 
-      # =========================
-      # Strip binaries (reduce size)
-      # =========================
-      - name: Strip binaries
+      - name: Strip binaries and clean up
         run: |
-          #cd $install_prefix
-          #find wine-build -type f -executable -exec strip --strip-unneeded {} \; || true
-          # Remove unnecessary static libraries and headers to save space
-          #rm -rf wine-build/include
-          rm -rf wine-build/share/man
-          rm -rf wine-build/share/doc
+          cd wine-build
+          rm -rf share/man share/doc
+          cd ..
 
-      # =========================
-      # Package Wine
-      # =========================
       - name: Package Wine
         run: |
           cd wine-build
-          ls -a
           tar -cJf ../wine-termux-arm64ec.tar.xz .
           cd ..
 
@@ -206,22 +181,16 @@ jobs:
           name: wine-arm64ec
           path: wine-termux-arm64ec.tar.xz
 
-      # =========================
-      # Create Release (Wine only)
-      # =========================
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: wine-${{ github.sha }}
-          name: Wine ARM64EC for Termux bleeding-edge
+          tag_name: wine-${{ github.run_id }}
+          name: Wine ARM64EC for Termux (bleeding-edge + full dinput/xinput patch)
           body: |
             **Wine ARM64EC build for Termux**
             - Built with ARM64EC support 
-            - Includes xinput/dinput gamepad patches
-            - Full installation (bin, lib, share) – extract to `/data/data/com.termux/files/usr`
-            - 
-
-            **File:** `wine-termux-arm64ec.tar.xz`
+            - Includes complete dinput/xinput gamepad patch from coffincolors/wine-custom
+            - Extract to `/data/data/com.termux/files/usr`
           files: wine-termux-arm64ec.tar.xz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
