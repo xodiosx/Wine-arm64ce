@@ -1,4 +1,4 @@
-name: xWine mz Patchs ARM64CE Termux
+name: xWine mz script ARM64CE Termux (longjunyu2/wine-custom)
 
 on:
   push:
@@ -12,31 +12,12 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Wine source (bleeding-edge)
+      - name: Checkout longjunyu2/wine-custom (custom-wine-9.16)
         uses: actions/checkout@v4
         with:
-          ref: bleeding-edge
+          repository: longjunyu2/wine-custom
+          ref: custom-wine-9.16
           fetch-depth: 0
-
-      # =========================
-      # Apply FULL dinput/xinput patch from custom Wine 9.16
-      # =========================
-      - name: Apply full dinput/xinput patch
-        run: |
-          git clone --depth 1 --branch custom-wine-9.16 https://github.com/longjunyu2/wine-custom.git ../wine-custom
-          # Copy all modified dinput files
-          cp -f ../wine-custom/dlls/dinput/* dlls/dinput/ 2>/dev/null || true
-          cp -f ../wine-custom/dlls/dinput8/* dlls/dinput8/ 2>/dev/null || true
-          cp -f ../wine-custom/dlls/xinput9_1_0/* dlls/xinput9_1_0/ 2>/dev/null || true
-          cp -f ../wine-custom/dlls/xinputuap/* dlls/xinputuap/ 2>/dev/null || true
-           
-
-
-          # Copy all modified xinput files for each version
-          for ver in 1_1 1_2 1_3 1_4 9_1_0 uap; do
-            cp -f ../wine-custom/dlls/xinput$ver/* dlls/xinput$ver/ 2>/dev/null || true
-          done
-          echo "Full patch applied"
 
       - name: Install dependencies
         run: |
@@ -79,9 +60,12 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
 
-      - name: Build Wine tools
+      - name: Build Wine tools (host)
         run: |
-          ./autogen.sh
+          # If configure is missing, generate it
+          if [ ! -f ./configure ]; then
+            ./autogen.sh
+          fi
           mkdir wine-tools-build
           cd wine-tools-build
           ../configure --without-x --without-vulkan --without-gstreamer
@@ -191,11 +175,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: wine-${{ github.run_id }}
-          name: Wine ARM64EC for Termux (bleeding-edge + full dinput/xinput patch)
+          name: Wine ARM64EC for Termux (longjunyu2/wine-custom 9.16)
           body: |
             **Wine ARM64EC build for Termux**
-            - Built with ARM64EC support 
-            - Includes complete dinput/xinput gamepad patch from coffincolors/wine-custom
+            - Source: longjunyu2/wine-custom (custom-wine-9.16)
+            - Includes full gamepad patches (dinput, dinput8, xinput)
             - Extract to `/data/data/com.termux/files/usr`
           files: wine-termux-arm64ec.tar.xz
         env:
