@@ -23,11 +23,15 @@ jobs:
       # =========================
       - name: Apply full dinput/xinput patch
         run: |
-          git clone --depth 1 --branch custom-wine-9.16 https://github.com/coffincolors/wine-custom.git ../wine-custom
+          git clone --depth 1 --branch custom-wine-9.16 https://github.com/longjunyu2/wine-custom.git ../wine-custom
           # Copy all modified dinput files
           cp -f ../wine-custom/dlls/dinput/* dlls/dinput/ 2>/dev/null || true
           cp -f ../wine-custom/dlls/dinput8/* dlls/dinput8/ 2>/dev/null || true
+          cp -f ../wine-custom/dlls/xinput9_1_0/* dlls/xinput9_1_0/ 2>/dev/null || true
+          cp -f ../wine-custom/dlls/xinputuap/* dlls/xinputuap/ 2>/dev/null || true
            
+
+
           # Copy all modified xinput files for each version
           for ver in 1_1 1_2 1_3 1_4 9_1_0 uap; do
             cp -f ../wine-custom/dlls/xinput$ver/* dlls/xinput$ver/ 2>/dev/null || true
