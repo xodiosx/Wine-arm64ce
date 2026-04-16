@@ -54,15 +54,19 @@ jobs:
           sudo rm llvm-mingw.tar.xz
           export LLVM_MINGW="/opt/${LLVMMINGW_NAME}"
           echo "$LLVM_MINGW/bin" >> $GITHUB_PATH
+          export PATH="$LLVM_MINGW/bin:$PATH"
           # Optionally symlink for convenience (not required)
-          sudo ln -sf "$LLVM_MINGW/bin/clang" /usr/bin/clang
-          sudo ln -sf "$LLVM_MINGW/bin/clang++" /usr/bin/clang++
-          sudo ln -sf "$LLVM_MINGW/bin/lld" /usr/bin/lld
+          #sudo ln -sf "$LLVM_MINGW/bin/clang" /usr/bin/clang
+          #sudo ln -sf "$LLVM_MINGW/bin/clang++" /usr/bin/clang++
+          #sudo ln -sf "$LLVM_MINGW/bin/lld" /usr/bin/lld
           clang --version
+          export CC="/opt/${LLVMMINGW_NAME}/bin/clang"
+          export CXX="/opt/${LLVMMINGW_NAME}/bin/clang++"
           echo "=== LLVM CHECK ==="
           which clang
           clang --version
           echo "CC test:"
+          $CC --version
           clang -v --target=x86_64-linux-gnu
 
 
