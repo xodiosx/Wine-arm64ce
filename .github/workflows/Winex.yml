@@ -59,7 +59,14 @@ jobs:
           sudo ln -sf "$LLVM_MINGW/bin/clang++" /usr/bin/clang++
           sudo ln -sf "$LLVM_MINGW/bin/lld" /usr/bin/lld
           clang --version
+          echo "=== LLVM CHECK ==="
+          which clang
+          clang --version
+          echo "CC test:"
+          clang -v --target=x86_64-linux-gnu
 
+
+          
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         with:
