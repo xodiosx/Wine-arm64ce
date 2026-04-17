@@ -127,7 +127,7 @@ jobs:
           case "$WINE_BRANCH" in
             hangover)
               echo "Processing Hangover branch"
-              git clone -b master https://github.com/AndreRH/hangover.git source
+              git clone -b arm64ec https://github.com/AndreRH/hangover.git source
               cd source
               git config advice.detachedHead false
               if [ "$WINE_VERSION" != "latest" ]; then
