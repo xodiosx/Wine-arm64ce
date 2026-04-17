@@ -1,4 +1,4 @@
-name: xWine mz patch ARM64CE Termux (longjunyu2/wine-custom)
+name: xWine mz test 2 ARM64CE Termux (longjunyu2/wine-custom)
 
 on:
   push:
