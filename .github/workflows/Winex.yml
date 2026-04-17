@@ -38,7 +38,6 @@ jobs:
             libgnutls28-dev libopenal-dev \
             libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev
-          # Clean apt cache to save space
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -52,25 +51,11 @@ jobs:
           [ -f llvm-mingw.tar.xz ] || { echo "❌ Download failed"; exit 1; }
           sudo tar -xJf llvm-mingw.tar.xz
           sudo rm llvm-mingw.tar.xz
-          export LLVM_MINGW="/opt/${LLVMMINGW_NAME}"
-          echo "$LLVM_MINGW/bin" >> $GITHUB_PATH
-          export PATH="$LLVM_MINGW/bin:$PATH"
-          # Optionally symlink for convenience (not required)
-          #sudo ln -sf "$LLVM_MINGW/bin/clang" /usr/bin/clang
-          #sudo ln -sf "$LLVM_MINGW/bin/clang++" /usr/bin/clang++
-          #sudo ln -sf "$LLVM_MINGW/bin/lld" /usr/bin/lld
-          clang --version
-          export CC="/opt/${LLVMMINGW_NAME}/bin/clang"
-          export CXX="/opt/${LLVMMINGW_NAME}/bin/clang++"
-          echo "=== LLVM CHECK ==="
-          which clang
-          clang --version
-          echo "CC test:"
-          $CC --version
-          clang -v --target=x86_64-linux-gnu
+          # Add to PATH for later steps (but do NOT set CC permanently)
+          echo "/opt/${LLVMMINGW_NAME}/bin" >> $GITHUB_PATH
+          # Verify installation
+          /opt/${LLVMMINGW_NAME}/bin/clang --version
 
-
-          
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         with:
@@ -85,9 +70,6 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
 
-      # =========================
-      # Install .deb packages correctly (fixed extraction)
-      # =========================
       - name: Install libandroid-shmem and libandroid-spawn .deb packages
         run: |
           wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
@@ -95,7 +77,6 @@ jobs:
 
           for deb in *.deb; do
             ar x "$deb"
-            # Extract directly to root (/) with sudo, avoiding permission/timestamp errors
             sudo tar -xf data.tar.* -C / \
               --no-overwrite-dir \
               --no-same-owner \
@@ -118,6 +99,9 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
 
+      # ======================================================================
+      # FIXED: Use NDK for Android (Unix) side; LLVM MinGW only in PATH for PE
+      # ======================================================================
       - name: Build Wine (hybrid WoW64)
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
@@ -131,11 +115,11 @@ jobs:
           export winetools_dir="./wine-tools"
 
           # ------------------------------------------------------------
-          # 1. Android (Unix) compiler (NDK)
+          # 1. Android (Unix) compiler – MUST be NDK, NOT LLVM MinGW
           # ------------------------------------------------------------
-          #export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
+          export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
+          export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
           export AS="$CC"
-          #export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
           export AR="$TOOLCHAIN/llvm-ar"
           export LD="$TOOLCHAIN/ld.lld"
           export LDFLAGS="$LDFLAGS -fuse-ld=lld"
@@ -144,12 +128,11 @@ jobs:
 
           # ------------------------------------------------------------
           # 2. Mingw (PE) compiler – put LLVM MinGW first in PATH
+          #    DO NOT override CC/CXX with it!
           # ------------------------------------------------------------
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
-          export CC="/opt/${LLVMMINGW_NAME}/bin/clang"
-          export CXX="/opt/${LLVMMINGW_NAME}/bin/clang++"
-          
+
           # ------------------------------------------------------------
           # 3. pkg-config
           # ------------------------------------------------------------
@@ -164,10 +147,8 @@ jobs:
           export LDFLAGS="-L$deps/lib -L$SYSROOT/usr/lib/aarch64-linux-android -Wl,-rpath-link=$deps/lib -Wl,-rpath-link=$SYSROOT/usr/lib/aarch64-linux-android"
           export LIBS="-landroid-shmem -landroid-spawn"
           export LIBRARY_PATH="$deps/lib:$SYSROOT/usr/lib/aarch64-linux-android"
-          export LLVM_MINGW="/opt/${LLVMMINGW_NAME}"
-          echo "$LLVM_MINGW/bin" >> $GITHUB_PATH
-          export PATH="$LLVM_MINGW/bin:$PATH"
-          # Optional: Library hints
+
+          # Optional library hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
@@ -175,13 +156,18 @@ jobs:
           export SDL2_LIBS="-L$deps/lib -lSDL2"
           export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include"
           export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
+
+          # ------------------------------------------------------------
+          # 5. Verify toolchains (debug)
+          # ------------------------------------------------------------
+          echo "=== Android (Unix) compiler ==="
+          $CC --version
+          echo "=== MinGW (PE) compiler (in PATH) ==="
           which clang
           clang --version
-          echo "CC test:"
-          $CC --version
-          clang -v --target=x86_64-linux-gnu
+
           # ------------------------------------------------------------
-          # 5. Configure Wine
+          # 6. Configure Wine
           # ------------------------------------------------------------
           ./configure \
             --enable-archs=aarch64,i386 \
@@ -215,7 +201,6 @@ jobs:
             --without-wayland \
             --without-xinerama \
             --without-xxf86vm \
-            --disable-amd_ags_x64 \
             --enable-wineandroid_drv=no
 
           make -j$(nproc)
@@ -252,7 +237,6 @@ jobs:
             - LLVM MinGW used for PE binaries
             - Includes gamepad patches (dinput, dinput8, xinput)
             - Extract to `/data/data/com.termux/files/usr`
-            - *Note: This is not true ARM64EC unless the source tree includes the necessary patches.*
           files: wine-termux-arm64ec.tar.xz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
