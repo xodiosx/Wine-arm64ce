@@ -190,7 +190,7 @@ jobs:
           # 7. Configure Wine – multi‑arch (ARM64EC, AArch64, i386)
           # ------------------------------------------------------------
           ./configure \
-            --enable-archs=arm64ec,aarch64,i386 \
+            --enable-archs=aarch64,i386 \
             --prefix="$install_prefix" \
             --host="$TARGET" \
             --with-mingw=clang \
