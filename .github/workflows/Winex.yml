@@ -181,7 +181,7 @@ jobs:
             --enable-archs=i386,aarch64 \
             --prefix="$install_prefix" \
             --host="$TARGET" \
-            --with-mingw=clang \
+            --with-mingw \
             --with-wine-tools="$winetools_dir" \
             --enable-win64 \
             --enable-nls \
