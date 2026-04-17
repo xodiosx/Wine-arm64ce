@@ -104,7 +104,7 @@ jobs:
           mv wine-tools-build wine-tools
 
       # ======================================================================
-      # FIXED: Correct NDK sysroot paths, host triplet, and explicit CROSSCC
+      # FIXED: Hide aarch64 MinGW tools to prevent ARM64 PE build
       # ======================================================================
       - name: Build Wine (hybrid WoW64)
         run: |
@@ -130,19 +130,22 @@ jobs:
           export STRIP="$TOOLCHAIN/llvm-strip"
 
           # ------------------------------------------------------------
-          # 2. Mingw (PE) compiler – only i686 (32-bit) needed
-          #    We add LLVM MinGW to PATH but also explicitly set CROSSCC.
+          # 2. Hide aarch64 MinGW tools to prevent ARM64 PE build
           # ------------------------------------------------------------
-          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
-          export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
+          mkdir -p dummy-bin
+          for tool in aarch64-w64-mingw32-clang aarch64-w64-mingw32-clang++ aarch64-w64-mingw32-as aarch64-w64-mingw32-ld aarch64-w64-mingw32-ar aarch64-w64-mingw32-ranlib aarch64-w64-mingw32-strip aarch64-w64-mingw32-dlltool; do
+            ln -sf /bin/false dummy-bin/$tool
+          done
+          export PATH="$PWD/dummy-bin:$LLVM_MINGW_TOOLCHAIN:$PATH"
 
-          # Force Wine to use i686-w64-mingw32-clang for PE compilation
+          # Explicitly set i686 cross tools
           export CROSSCC="$LLVM_MINGW_TOOLCHAIN/i686-w64-mingw32-clang"
           export CROSSCXX="$LLVM_MINGW_TOOLCHAIN/i686-w64-mingw32-clang++"
           export CROSSAR="$LLVM_MINGW_TOOLCHAIN/llvm-ar"
           export CROSSRANLIB="$LLVM_MINGW_TOOLCHAIN/llvm-ranlib"
           export CROSSSTRIP="$LLVM_MINGW_TOOLCHAIN/llvm-strip"
           export CROSSDLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
+          export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
           # ------------------------------------------------------------
           # 3. pkg-config
@@ -187,6 +190,8 @@ jobs:
           $CC --version
           echo "=== i686 Mingw (PE) compiler ==="
           $CROSSCC --version
+          echo "=== PATH (dummy first) ==="
+          which aarch64-w64-mingw32-clang || echo "aarch64 MinGW hidden successfully"
 
           # ------------------------------------------------------------
           # 6. QUICK TEST: Ensure compiler can link a simple program
