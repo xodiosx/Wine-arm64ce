@@ -63,7 +63,7 @@ jobs:
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r28c
+          ndk-version: r27c   # matches the NDK actually used in your logs
 
       - name: Setup Termux sysroot
         run: |
@@ -73,9 +73,12 @@ jobs:
           sudo mv data /data
           sudo chown -R $(whoami):$(whoami) /data
           mkdir -p /data/data/com.termux/files/usr/tmp
+          # Make all headers and libs readable
+          sudo chmod -R a+rX /data/data/com.termux/files/usr
 
-      - name: Install libandroid-shmem and libandroid-spawn .deb packages
+      - name: Install libandroid-shmem and libandroid-spawn (shared + static)
         run: |
+          cd /tmp
           wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
           wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn_0.3_aarch64.deb
           wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem-static_0.7_aarch64.deb
@@ -86,17 +89,18 @@ jobs:
             sudo tar -xf data.tar.* -C / \
               --no-overwrite-dir \
               --no-same-owner \
-              --no-same-permissions \
-              --touch
+              --no-same-permissions
             rm -f data.tar.* debian-binary control.tar.*
           done
 
-          echo "Fixing permissions on Termux libraries..."
-          sudo chmod -R 755 /data/data/com.termux/files/usr/lib
-          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-shmem.so 2>/dev/null || true
-          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-spawn.so 2>/dev/null || true
-          # Make all headers readable by everyone
-          sudo chmod -R 755 /data/data/com.termux/files/usr/include
+          # Fix library permissions
+          sudo chmod -R a+rX /data/data/com.termux/files/usr/lib
+          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.so 2>/dev/null || true
+          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.a 2>/dev/null || true
+
+          echo "Checking for static libraries:"
+          ls -l /data/data/com.termux/files/usr/lib/libandroid-shmem.a
+          ls -l /data/data/com.termux/files/usr/lib/libandroid-spawn.a
 
       - name: Build Wine tools (host)
         run: |
@@ -111,7 +115,7 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
 
-      - name: Build Wine (ARM64EC + aarch64 + i386) Final
+      - name: Build Wine (ARM64EC + aarch64 + i386)
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -136,17 +140,18 @@ jobs:
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
-          # pkg-config (only Termux)
+          # pkg-config
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
 
-          # Flags – minimal, letting NDK handle sysroot
+          # Compiler flags
           export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -landroid-shmem -landroid-spawn -Wl,--rosegment"
+          # CRITICAL: --no-as-needed forces libandroid-shmem to be kept, solving shm_open/shm_unlink
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -Wl,--no-as-needed -landroid-shmem -landroid-spawn -Wl,--as-needed -Wl,--rosegment"
           export LIBRARY_PATH="$deps/lib"
 
-          # Library hints
+          # Environment hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
@@ -165,12 +170,12 @@ jobs:
           $CC test.c -o test $CFLAGS $LDFLAGS || { echo "❌ Unix compiler test failed!"; exit 1; }
           echo "✅ Unix compiler test passed."
 
-          # Explicitly tell configure where the ARM64EC compiler is
+          # ARM64EC compiler detection
           export arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
           export ac_cv_prog_arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
 
           ./configure \
-            --enable-archs=i386,aarch64 \
+            --enable-archs=i386,aarch64,arm64ec \
             --prefix="$install_prefix" \
             --host="$TARGET" \
             --with-mingw=clang \
