@@ -113,44 +113,37 @@ jobs:
           export install_prefix="$WORKDIR/wine-build"
           export winetools_dir="./wine-tools"
 
-          # Android Unix compiler (NDK)
+          # ------------------------------------------------------------
+          # Android (Unix) compiler – NDK (relies on built-in sysroot)
+          # ------------------------------------------------------------
           export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
           export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
           export AS="$CC"
           export AR="$TOOLCHAIN/llvm-ar"
-          export LD="$TOOLCHAIN/ld.lld"
+          export LD="$TOOLCHAIN/ld"
           export RANLIB="$TOOLCHAIN/llvm-ranlib"
           export STRIP="$TOOLCHAIN/llvm-strip"
 
-          # PE compiler (ARM64EC toolchain)
+          # ------------------------------------------------------------
+          # PE compiler – ARM64EC toolchain (in PATH)
+          # ------------------------------------------------------------
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
-          export CROSSCC="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
-          export CROSSCXX="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang++"
-          export CROSSAR="$LLVM_MINGW_TOOLCHAIN/llvm-ar"
-          export CROSSRANLIB="$LLVM_MINGW_TOOLCHAIN/llvm-ranlib"
-          export CROSSSTRIP="$LLVM_MINGW_TOOLCHAIN/llvm-strip"
-          export CROSSDLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
+          # ------------------------------------------------------------
           # pkg-config
-          export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig:$SYSROOT/usr/lib/pkgconfig"
-          export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+          # ------------------------------------------------------------
+          export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
+          export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
 
-          # Compiler & linker flags for Android
-          export NDK_LIBDIR="$SYSROOT/usr/lib/$TARGET/$SDKVER"
-          export CPPFLAGS="--sysroot=$SYSROOT -I$deps/include"
-          export CFLAGS="--sysroot=$SYSROOT \
-            -Wno-declaration-after-statement \
-            -Wno-implicit-function-declaration \
-            -Wno-int-conversion"
-          export LDFLAGS="--sysroot=$SYSROOT \
-            -L$deps/lib \
-            -L$NDK_LIBDIR \
-            -Wl,-rpath-link=$deps/lib \
-            -Wl,-rpath-link=$NDK_LIBDIR \
-            -fuse-ld=lld"
-          export LIBRARY_PATH="$deps/lib:$NDK_LIBDIR"
-          export LIBS="-landroid-shmem -landroid-spawn -lc++ -ldl -llog -lunwind"
+          # ------------------------------------------------------------
+          # Flags (simplified, letting NDK handle sysroot)
+          # ------------------------------------------------------------
+          export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
+          export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
+          export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export X_LIBS="-L$deps/lib -landroid-shmem -landroid-spawn"
 
           # Library hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
@@ -164,16 +157,16 @@ jobs:
           echo "=== Android (Unix) compiler ==="
           $CC --version
           echo "=== ARM64EC Mingw (PE) compiler ==="
-          $CROSSCC --version
+          arm64ec-w64-mingw32-clang --version
 
           # Quick linker test
           echo 'int main(){return 0;}' > test.c
-          $CC test.c -o test $CFLAGS $LDFLAGS $LIBS || { echo "❌ Unix compiler test failed!"; exit 1; }
+          $CC test.c -o test $CFLAGS $LDFLAGS $X_LIBS || { echo "❌ Unix compiler test failed!"; exit 1; }
           echo "✅ Unix compiler test passed."
 
           # Force configure to use our ARM64EC cross-compiler
-          export arm64ec_w64_mingw32_clang="$CROSSCC"
-          export ac_cv_prog_arm64ec_w64_mingw32_clang="$CROSSCC"
+          export arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
+          export ac_cv_prog_arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
 
           ./configure \
             --enable-archs=arm64ec,aarch64,i386 \
@@ -207,13 +200,7 @@ jobs:
             --without-wayland \
             --without-xinerama \
             --without-xxf86vm \
-            --enable-wineandroid_drv=no \
-            CROSSCC="$CROSSCC" \
-            CROSSCXX="$CROSSCXX" \
-            CROSSAR="$CROSSAR" \
-            CROSSRANLIB="$CROSSRANLIB" \
-            CROSSSTRIP="$CROSSSTRIP" \
-            CROSSDLLTOOL="$CROSSDLLTOOL"
+            --enable-wineandroid_drv=no
 
           make -j$(nproc)
           make install -j$(nproc)
