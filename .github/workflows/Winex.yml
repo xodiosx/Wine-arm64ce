@@ -93,6 +93,8 @@ jobs:
           sudo chmod -R 755 /data/data/com.termux/files/usr/lib
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-shmem.so 2>/dev/null || true
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-spawn.so 2>/dev/null || true
+          # Make all headers readable by everyone
+          sudo chmod -R 755 /data/data/com.termux/files/usr/include
 
       - name: Build Wine tools (host)
         run: |
