@@ -82,13 +82,10 @@ jobs:
               --touch
             rm -f data.tar.* debian-binary control.tar.*
           done
-
-          # 🔧 FIX PERMISSIONS for linker access
-          echo "Fixing permissions on Termux libraries..."
           sudo chmod -R 755 /data/data/com.termux/files/usr/lib
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-shmem.so 2>/dev/null || true
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-spawn.so 2>/dev/null || true
-          ls -la /data/data/com.termux/files/usr/lib/libandroid-*.so
+          echo "Packages installed into /data/data/com.termux/files/usr"
 
       - name: Build Wine tools (host)
         run: |
@@ -104,9 +101,9 @@ jobs:
           mv wine-tools-build wine-tools
 
       # ======================================================================
-      # FIXED: Correct NDK sysroot paths, host triplet, and permissions
+      # CORRECT MULTI-ARCH PE BUILD (ARM64EC + AARCH64 + I386)
       # ======================================================================
-      - name: Build Wine (hybrid WoW64)
+      - name: Build Wine (hybrid WoW64 + ARM64EC)
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -119,7 +116,7 @@ jobs:
           export winetools_dir="./wine-tools"
 
           # ------------------------------------------------------------
-          # 1. Android (Unix) compiler – NDK only
+          # 1. Unix (Android) side – NDK Clang
           # ------------------------------------------------------------
           export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
           export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
@@ -130,10 +127,10 @@ jobs:
           export STRIP="$TOOLCHAIN/llvm-strip"
 
           # ------------------------------------------------------------
-          # 2. Mingw (PE) compiler – LLVM MinGW in PATH only
+          # 2. PE (Windows) side – LLVM MinGW in PATH (Wine auto-detects)
           # ------------------------------------------------------------
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
-          export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
+          # No CROSSCC overrides – let configure find *-w64-mingw32-* symlinks
 
           # ------------------------------------------------------------
           # 3. pkg-config
@@ -142,10 +139,9 @@ jobs:
           export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
 
           # ------------------------------------------------------------
-          # 4. Compiler & linker flags (CORRECT NDK PATHS)
+          # 4. Compiler & linker flags
           # ------------------------------------------------------------
           export NDK_LIBDIR="$SYSROOT/usr/lib/$TARGET/$SDKVER"
-
           export CPPFLAGS="--sysroot=$SYSROOT -I$deps/include"
           export CFLAGS="--sysroot=$SYSROOT \
             -Wno-declaration-after-statement \
@@ -158,11 +154,9 @@ jobs:
             -Wl,-rpath-link=$NDK_LIBDIR \
             -fuse-ld=lld"
           export LIBRARY_PATH="$deps/lib:$NDK_LIBDIR"
-
-          # Required NDK runtime libraries
           export LIBS="-landroid-shmem -landroid-spawn -lc++ -ldl -llog -lunwind"
 
-          # Optional library hints
+          # Library hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
@@ -174,36 +168,33 @@ jobs:
           # ------------------------------------------------------------
           # 5. Verify toolchains
           # ------------------------------------------------------------
-          echo "=== Android (Unix) compiler ==="
+          echo "=== Unix compiler (NDK) ==="
           $CC --version
-          echo "=== MinGW (PE) compiler (in PATH) ==="
-          which clang
-          clang --version
+          echo "=== PE compilers (LLVM MinGW) ==="
+          which i686-w64-mingw32-clang
+          i686-w64-mingw32-clang --version
+          which aarch64-w64-mingw32-clang
+          aarch64-w64-mingw32-clang --version
 
           # ------------------------------------------------------------
-          # 6. QUICK TEST: Ensure compiler can link a simple program
+          # 6. Quick test: Unix compiler can link
           # ------------------------------------------------------------
-          echo "=== Testing compiler linking ==="
           echo 'int main(){return 0;}' > test.c
-          echo "Command: $CC test.c -o test $CFLAGS $LDFLAGS $LIBS"
           $CC test.c -o test $CFLAGS $LDFLAGS $LIBS || {
-            echo "❌ Compiler test failed!"
-            echo "Checking library files:"
-            ls -la $deps/lib/libandroid-*.so
+            echo "❌ Unix compiler test failed!"
             exit 1
           }
-          echo "✅ Compiler test passed."
+          echo "✅ Unix compiler test passed."
 
           # ------------------------------------------------------------
-          # 7. Configure Wine
+          # 7. Configure Wine – multi‑arch (ARM64EC, AArch64, i386)
           # ------------------------------------------------------------
           ./configure \
-            --enable-archs=aarch64,i386 \
+            --enable-archs=arm64ec,aarch64,i386 \
             --prefix="$install_prefix" \
             --host="$TARGET" \
-            --with-mingw \
+            --with-mingw=clang \
             --with-wine-tools="$winetools_dir" \
-            --enable-win64 \
             --enable-nls \
             --with-pulse \
             --with-alsa \
@@ -260,9 +251,9 @@ jobs:
           tag_name: wine-${{ github.run_id }}
           name: Wine for Termux (longjunyu2/wine-custom 9.16)
           body: |
-            **Wine hybrid WoW64 build for Termux (aarch64 + i386)**
+            **Wine hybrid WoW64 + ARM64EC build for Termux (aarch64 + i386 + arm64ec)**
             - Source: longjunyu2/wine-custom (custom-wine-9.16)
-            - LLVM MinGW used for PE binaries
+            - LLVM MinGW used for all PE binaries (i386, x86_64, arm64)
             - Includes gamepad patches (dinput, dinput8, xinput)
             - Extract to `/data/data/com.termux/files/usr`
           files: wine-termux-arm64ec.tar.xz
