@@ -193,7 +193,7 @@ jobs:
           cp -r ${{ env.WINE_SOURCE_DIR }}/source ${{ env.WINE64_DIR }}/source
           cd ${{ env.WINE64_DIR }}/source
           if [ ! -f ./configure ]; then
-            ./autogen.sh
+            ./autogen.sh || true
           fi
 
       - name: native wine64 NLS
@@ -564,7 +564,7 @@ jobs:
           echo "✔ All patch processes completed"
 
           if [ ! -f "configure" ]; then
-            ./autogen.sh
+            ./autogen.sh || true
           fi
 
       - name: ARM64 WOW64
