@@ -94,7 +94,8 @@ jobs:
           done
 
           # Fix library permissions
-          sudo chmod -R a+rX /data/data/com.termux/files/usr/lib
+          sudo chmod -R 755 /data/data/com.termux/files/usr/lib
+          sudo chmod -R 755 /data/data/com.termux/files/usr/include
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.so 2>/dev/null || true
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.a 2>/dev/null || true
 
