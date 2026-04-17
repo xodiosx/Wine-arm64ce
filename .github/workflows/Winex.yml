@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 env:
-  LLVMMINGW_DATE: 20251202
-  LLVMMINGW_NAME: llvm-mingw-20251202-ucrt-ubuntu-22.04-x86_64
+  LLVMMINGW_DATE: 20250319
+  LLVMMINGW_NAME: llvm-mingw-20250319-ucrt-ubuntu-20.04-x86_64
 
 jobs:
   build:
@@ -41,7 +41,7 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: Setup LLVM MinGW
+      - name: Setup LLVM MinGW (Hangover version)
         run: |
           sudo mkdir -p /opt
           cd /opt
@@ -101,7 +101,7 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
 
-      - name: Build Wine (ARM64EC + aarch64 + i386 for Termux)
+      - name: Build Wine (ARM64EC + aarch64 + i386) Hangover-style
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -131,19 +131,18 @@ jobs:
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
           # ------------------------------------------------------------
-          # pkg-config
+          # pkg-config (only Termux paths; NDK is implicit)
           # ------------------------------------------------------------
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
 
           # ------------------------------------------------------------
-          # Flags (simplified, letting NDK handle sysroot)
+          # Flags – minimal, letting NDK handle sysroot and runtime libs
           # ------------------------------------------------------------
           export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
-          export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-          export X_LIBS="-L$deps/lib -landroid-shmem -landroid-spawn"
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -landroid-shmem -landroid-spawn -Wl,--rosegment"
+          export LIBRARY_PATH="$deps/lib"
 
           # Library hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
@@ -161,15 +160,11 @@ jobs:
 
           # Quick linker test
           echo 'int main(){return 0;}' > test.c
-          $CC test.c -o test $CFLAGS $LDFLAGS $X_LIBS || { echo "❌ Unix compiler test failed!"; exit 1; }
+          $CC test.c -o test $CFLAGS $LDFLAGS || { echo "❌ Unix compiler test failed!"; exit 1; }
           echo "✅ Unix compiler test passed."
 
-          # Force configure to use our ARM64EC cross-compiler
-          export arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
-          export ac_cv_prog_arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
-
           ./configure \
-            --enable-archs=arm64ec,aarch64,i386 \
+            --enable-archs=i386,aarch64,arm64ec \
             --prefix="$install_prefix" \
             --host="$TARGET" \
             --with-mingw=clang \
