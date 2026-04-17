@@ -101,10 +101,7 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
 
-      # ======================================================================
-      # ARM64EC + aarch64 + i386 build (Termux/Android)
-      # ======================================================================
-      - name: Build Wine (hybrid WoW64 with ARM64EC)
+      - name: Build Wine (ARM64EC + aarch64 + i386 for Termux)
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -116,9 +113,7 @@ jobs:
           export install_prefix="$WORKDIR/wine-build"
           export winetools_dir="./wine-tools"
 
-          # ------------------------------------------------------------
-          # 1. Android (Unix) compiler – NDK
-          # ------------------------------------------------------------
+          # Android Unix compiler (NDK)
           export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
           export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
           export AS="$CC"
@@ -127,10 +122,7 @@ jobs:
           export RANLIB="$TOOLCHAIN/llvm-ranlib"
           export STRIP="$TOOLCHAIN/llvm-strip"
 
-          # ------------------------------------------------------------
-          # 2. Mingw (PE) compiler – ARM64EC toolchain for PE side
-          #    Uses arm64ec-w64-mingw32-clang which also supports aarch64 PE
-          # ------------------------------------------------------------
+          # PE compiler (ARM64EC toolchain)
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export CROSSCC="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
           export CROSSCXX="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang++"
@@ -140,17 +132,12 @@ jobs:
           export CROSSDLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
-          # ------------------------------------------------------------
-          # 3. pkg-config
-          # ------------------------------------------------------------
+          # pkg-config
           export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig:$SYSROOT/usr/lib/pkgconfig"
           export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
 
-          # ------------------------------------------------------------
-          # 4. Compiler & linker flags (NDK sysroot paths)
-          # ------------------------------------------------------------
+          # Compiler & linker flags for Android
           export NDK_LIBDIR="$SYSROOT/usr/lib/$TARGET/$SDKVER"
-
           export CPPFLAGS="--sysroot=$SYSROOT -I$deps/include"
           export CFLAGS="--sysroot=$SYSROOT \
             -Wno-declaration-after-statement \
@@ -165,7 +152,7 @@ jobs:
           export LIBRARY_PATH="$deps/lib:$NDK_LIBDIR"
           export LIBS="-landroid-shmem -landroid-spawn -lc++ -ldl -llog -lunwind"
 
-          # Optional library hints
+          # Library hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
@@ -174,27 +161,20 @@ jobs:
           export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include"
           export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
 
-          # ------------------------------------------------------------
-          # 5. Verify toolchains
-          # ------------------------------------------------------------
           echo "=== Android (Unix) compiler ==="
           $CC --version
           echo "=== ARM64EC Mingw (PE) compiler ==="
           $CROSSCC --version
 
-          # ------------------------------------------------------------
-          # 6. Quick linker test
-          # ------------------------------------------------------------
+          # Quick linker test
           echo 'int main(){return 0;}' > test.c
-          $CC test.c -o test $CFLAGS $LDFLAGS $LIBS || {
-            echo "❌ Unix compiler test failed!"
-            exit 1
-          }
+          $CC test.c -o test $CFLAGS $LDFLAGS $LIBS || { echo "❌ Unix compiler test failed!"; exit 1; }
           echo "✅ Unix compiler test passed."
 
-          # ------------------------------------------------------------
-          # 7. Configure Wine
-          # ------------------------------------------------------------
+          # Force configure to use our ARM64EC cross-compiler
+          export arm64ec_w64_mingw32_clang="$CROSSCC"
+          export ac_cv_prog_arm64ec_w64_mingw32_clang="$CROSSCC"
+
           ./configure \
             --enable-archs=arm64ec,aarch64,i386 \
             --prefix="$install_prefix" \
@@ -262,12 +242,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: wine-${{ github.run_id }}
-          name: Wine for Termux (longjunyu2/wine-custom 9.16) ARM64EC
+          name: Wine for Termux (ARM64EC + aarch64 + i386)
           body: |
-            **Wine hybrid WoW64 build for Termux (aarch64 + ARM64EC + i386)**
+            **Wine hybrid WoW64 with ARM64EC support for Termux**
             - Source: longjunyu2/wine-custom (custom-wine-9.16)
             - LLVM MinGW used for PE binaries (ARM64EC toolchain)
-            - Includes gamepad patches
             - Extract to `/data/data/com.termux/files/usr`
           files: wine-termux-arm64ec.tar.xz
         env:
