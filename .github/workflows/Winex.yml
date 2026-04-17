@@ -175,7 +175,7 @@ jobs:
           export ac_cv_prog_arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
 
           ./configure \
-            --enable-archs=i386,aarch64,arm64ec \
+            --enable-archs=i386,aarch64 \
             --prefix="$install_prefix" \
             --host="$TARGET" \
             --with-mingw=clang \
