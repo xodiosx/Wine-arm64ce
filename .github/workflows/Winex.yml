@@ -98,7 +98,7 @@ jobs:
           mv wine-tools-build wine-tools
 
       # ======================================================================
-      # FIXED: Use NDK for Android (Unix) side; LLVM MinGW only in PATH for PE
+      # FIXED: Correct NDK sysroot paths, host triplet, and test compile
       # ======================================================================
       - name: Build Wine (hybrid WoW64)
         run: |
@@ -113,7 +113,7 @@ jobs:
           export winetools_dir="./wine-tools"
 
           # ------------------------------------------------------------
-          # 1. Android (Unix) compiler – MUST be NDK, NOT LLVM MinGW
+          # 1. Android (Unix) compiler – NDK only
           # ------------------------------------------------------------
           export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
           export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
@@ -124,8 +124,7 @@ jobs:
           export STRIP="$TOOLCHAIN/llvm-strip"
 
           # ------------------------------------------------------------
-          # 2. Mingw (PE) compiler – put LLVM MinGW first in PATH
-          #    DO NOT override CC/CXX with it!
+          # 2. Mingw (PE) compiler – LLVM MinGW in PATH only
           # ------------------------------------------------------------
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
@@ -137,8 +136,11 @@ jobs:
           export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
 
           # ------------------------------------------------------------
-          # 4. Compiler & linker flags (FIXED – explicit sysroot)
+          # 4. Compiler & linker flags (CORRECT NDK PATHS)
           # ------------------------------------------------------------
+          # NDK's actual library path: usr/lib/$TARGET/$SDKVER
+          export NDK_LIBDIR="$SYSROOT/usr/lib/$TARGET/$SDKVER"
+
           export CPPFLAGS="--sysroot=$SYSROOT -I$deps/include"
           export CFLAGS="--sysroot=$SYSROOT \
             -Wno-declaration-after-statement \
@@ -146,13 +148,14 @@ jobs:
             -Wno-int-conversion"
           export LDFLAGS="--sysroot=$SYSROOT \
             -L$deps/lib \
-            -L$SYSROOT/usr/lib/aarch64-linux-android \
+            -L$NDK_LIBDIR \
             -Wl,-rpath-link=$deps/lib \
-            -Wl,-rpath-link=$SYSROOT/usr/lib/aarch64-linux-android"
-          # Note: Do NOT add -fuse-ld=lld – NDK clang already uses lld internally
+            -Wl,-rpath-link=$NDK_LIBDIR \
+            -fuse-ld=lld"
+          export LIBRARY_PATH="$deps/lib:$NDK_LIBDIR"
 
-          export LIBRARY_PATH="$deps/lib:$SYSROOT/usr/lib/aarch64-linux-android"
-          export LIBS="-landroid-shmem -landroid-spawn"
+          # Required NDK runtime libraries
+          export LIBS="-landroid-shmem -landroid-spawn -lc++ -ldl -llog -lunwind"
 
           # Optional library hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
@@ -164,7 +167,7 @@ jobs:
           export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
 
           # ------------------------------------------------------------
-          # 5. Verify toolchains (debug)
+          # 5. Verify toolchains
           # ------------------------------------------------------------
           echo "=== Android (Unix) compiler ==="
           $CC --version
@@ -173,12 +176,24 @@ jobs:
           clang --version
 
           # ------------------------------------------------------------
-          # 6. Configure Wine
+          # 6. QUICK TEST: Ensure compiler can link a simple program
           # ------------------------------------------------------------
+          echo 'int main(){return 0;}' > test.c
+          echo "Testing compiler with flags: $CC test.c -o test $CFLAGS $LDFLAGS $LIBS"
+          $CC test.c -o test $CFLAGS $LDFLAGS $LIBS || {
+            echo "❌ Compiler test failed! See config.log later."
+            exit 1
+          }
+          echo "✅ Compiler test passed."
+
+          # ------------------------------------------------------------
+          # 7. Configure Wine
+          # ------------------------------------------------------------
+          # Host must be just the target triplet (no SDK version)
           ./configure \
             --enable-archs=aarch64,i386 \
             --prefix="$install_prefix" \
-            --host="${TARGET}${SDKVER}" \
+            --host="$TARGET" \
             --with-mingw \
             --with-wine-tools="$winetools_dir" \
             --enable-win64 \
