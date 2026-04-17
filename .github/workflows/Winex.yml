@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 env:
-  LLVMMINGW_DATE: 20250920
-  LLVMMINGW_NAME: llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64
+  LLVMMINGW_DATE: 20251202
+  LLVMMINGW_NAME: llvm-mingw-20251202-ucrt-ubuntu-22.04-x86_64
 
 jobs:
   build:
@@ -45,7 +45,7 @@ jobs:
         run: |
           sudo mkdir -p /opt
           cd /opt
-          URL="https://github.com/bylaws/llvm-mingw/releases/download/${LLVMMINGW_DATE}/${LLVMMINGW_NAME}.tar.xz"
+          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVMMINGW_DATE}/${LLVMMINGW_NAME}.tar.xz"
           echo "Downloading: $URL"
           sudo wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 "$URL" -O llvm-mingw.tar.xz
           [ -f llvm-mingw.tar.xz ] || { echo "❌ Download failed"; exit 1; }
@@ -83,12 +83,10 @@ jobs:
             rm -f data.tar.* debian-binary control.tar.*
           done
 
-          # Fix permissions so linker can read the libraries
           echo "Fixing permissions on Termux libraries..."
           sudo chmod -R 755 /data/data/com.termux/files/usr/lib
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-shmem.so 2>/dev/null || true
           sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-spawn.so 2>/dev/null || true
-          ls -la /data/data/com.termux/files/usr/lib/libandroid-*.so
 
       - name: Build Wine tools (host)
         run: |
@@ -104,9 +102,9 @@ jobs:
           mv wine-tools-build wine-tools
 
       # ======================================================================
-      # FIXED: Hide aarch64 MinGW tools to prevent ARM64 PE build
+      # ARM64EC + aarch64 + i386 build (Termux/Android)
       # ======================================================================
-      - name: Build Wine (hybrid WoW64)
+      - name: Build Wine (hybrid WoW64 with ARM64EC)
         run: |
           export WORKDIR="$GITHUB_WORKSPACE"
           export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -119,7 +117,7 @@ jobs:
           export winetools_dir="./wine-tools"
 
           # ------------------------------------------------------------
-          # 1. Android (Unix) compiler – NDK only
+          # 1. Android (Unix) compiler – NDK
           # ------------------------------------------------------------
           export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
           export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
@@ -130,17 +128,12 @@ jobs:
           export STRIP="$TOOLCHAIN/llvm-strip"
 
           # ------------------------------------------------------------
-          # 2. Hide aarch64 MinGW tools to prevent ARM64 PE build
+          # 2. Mingw (PE) compiler – ARM64EC toolchain for PE side
+          #    Uses arm64ec-w64-mingw32-clang which also supports aarch64 PE
           # ------------------------------------------------------------
-          mkdir -p dummy-bin
-          for tool in aarch64-w64-mingw32-clang aarch64-w64-mingw32-clang++ aarch64-w64-mingw32-as aarch64-w64-mingw32-ld aarch64-w64-mingw32-ar aarch64-w64-mingw32-ranlib aarch64-w64-mingw32-strip aarch64-w64-mingw32-dlltool; do
-            ln -sf /bin/false dummy-bin/$tool
-          done
-          export PATH="$PWD/dummy-bin:$LLVM_MINGW_TOOLCHAIN:$PATH"
-
-          # Explicitly set i686 cross tools
-          export CROSSCC="$LLVM_MINGW_TOOLCHAIN/i686-w64-mingw32-clang"
-          export CROSSCXX="$LLVM_MINGW_TOOLCHAIN/i686-w64-mingw32-clang++"
+          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
+          export CROSSCC="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
+          export CROSSCXX="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang++"
           export CROSSAR="$LLVM_MINGW_TOOLCHAIN/llvm-ar"
           export CROSSRANLIB="$LLVM_MINGW_TOOLCHAIN/llvm-ranlib"
           export CROSSSTRIP="$LLVM_MINGW_TOOLCHAIN/llvm-strip"
@@ -154,7 +147,7 @@ jobs:
           export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
 
           # ------------------------------------------------------------
-          # 4. Compiler & linker flags (CORRECT NDK PATHS)
+          # 4. Compiler & linker flags (NDK sysroot paths)
           # ------------------------------------------------------------
           export NDK_LIBDIR="$SYSROOT/usr/lib/$TARGET/$SDKVER"
 
@@ -170,8 +163,6 @@ jobs:
             -Wl,-rpath-link=$NDK_LIBDIR \
             -fuse-ld=lld"
           export LIBRARY_PATH="$deps/lib:$NDK_LIBDIR"
-
-          # Required NDK runtime libraries
           export LIBS="-landroid-shmem -landroid-spawn -lc++ -ldl -llog -lunwind"
 
           # Optional library hints
@@ -188,19 +179,15 @@ jobs:
           # ------------------------------------------------------------
           echo "=== Android (Unix) compiler ==="
           $CC --version
-          echo "=== i686 Mingw (PE) compiler ==="
+          echo "=== ARM64EC Mingw (PE) compiler ==="
           $CROSSCC --version
-          echo "=== PATH (dummy first) ==="
-          which aarch64-w64-mingw32-clang || echo "aarch64 MinGW hidden successfully"
 
           # ------------------------------------------------------------
-          # 6. QUICK TEST: Ensure compiler can link a simple program
+          # 6. Quick linker test
           # ------------------------------------------------------------
           echo 'int main(){return 0;}' > test.c
-          echo "Testing Unix compiler with flags: $CC test.c -o test $CFLAGS $LDFLAGS $LIBS"
           $CC test.c -o test $CFLAGS $LDFLAGS $LIBS || {
-            echo "❌ Compiler test failed!"
-            ls -la $deps/lib/libandroid-*.so
+            echo "❌ Unix compiler test failed!"
             exit 1
           }
           echo "✅ Unix compiler test passed."
@@ -209,12 +196,12 @@ jobs:
           # 7. Configure Wine
           # ------------------------------------------------------------
           ./configure \
-            --enable-archs=aarch64,i386 \
+            --enable-archs=arm64ec,aarch64,i386 \
             --prefix="$install_prefix" \
             --host="$TARGET" \
-            --with-mingw \
+            --with-mingw=clang \
             --with-wine-tools="$winetools_dir" \
-            --enable-win64=no \
+            --enable-win64 \
             --enable-nls \
             --with-pulse \
             --with-alsa \
@@ -275,12 +262,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: wine-${{ github.run_id }}
-          name: Wine for Termux (longjunyu2/wine-custom 9.16)
+          name: Wine for Termux (longjunyu2/wine-custom 9.16) ARM64EC
           body: |
-            **Wine hybrid WoW64 build for Termux (aarch64 + i386)**
+            **Wine hybrid WoW64 build for Termux (aarch64 + ARM64EC + i386)**
             - Source: longjunyu2/wine-custom (custom-wine-9.16)
-            - LLVM MinGW used for PE binaries
-            - Includes gamepad patches (dinput, dinput8, xinput)
+            - LLVM MinGW used for PE binaries (ARM64EC toolchain)
+            - Includes gamepad patches
             - Extract to `/data/data/com.termux/files/usr`
           files: wine-termux-arm64ec.tar.xz
         env:
