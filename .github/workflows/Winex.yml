@@ -133,9 +133,9 @@ jobs:
           # ------------------------------------------------------------
           # 1. Android (Unix) compiler (NDK)
           # ------------------------------------------------------------
-          export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
+          #export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
           export AS="$CC"
-          export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
+          #export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
           export AR="$TOOLCHAIN/llvm-ar"
           export LD="$TOOLCHAIN/ld.lld"
           export LDFLAGS="$LDFLAGS -fuse-ld=lld"
@@ -147,10 +147,10 @@ jobs:
           # ------------------------------------------------------------
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
-          export CC="$CC --sysroot=$SYSROOT"
-          export CXX="$CXX --sysroot=$SYSROOT"
-          export CFLAGS="$CFLAGS -fPIC"
-          export CXXFLAGS="$CFLAGS"
+          export CC="/opt/${LLVMMINGW_NAME}/bin/clang"
+          export CXX="/opt/${LLVMMINGW_NAME}/bin/clang++"
+          #export CFLAGS="$CFLAGS -fPIC"
+          #export CXXFLAGS="$CFLAGS"
           # ------------------------------------------------------------
           # 3. pkg-config
           # ------------------------------------------------------------
