@@ -173,10 +173,10 @@ jobs:
           echo "✅ Unix compiler test passed."
 
           # ARM64EC compiler detection
-          export arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
-          export ac_cv_prog_arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
+          #export arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
+          #export ac_cv_prog_arm64ec_w64_mingw32_clang="$LLVM_MINGW_TOOLCHAIN/arm64ec-w64-mingw32-clang"
 
-          ./configure --enable-archs=i386,aarch64 --prefix="$install_prefix" --host=aarch64-linux-android --disable-win16 --disable-amd_ags_x64 --with-mingw --with-wine-tools="$winetools_dir" --enable-win64 --enable-nls --with-pulse --with-alsa --disable-opencl --disable-tests --without-capi --without-coreaudio --without-cups --without-dbus --without-gphoto --without-gssapi --without-krb5 --without-netapi --without-oss --without-pcap --without-pcsclite --without-sane --without-udev --without-unwind --without-usb --without-v4l2 --with-vulkan --with-xcomposite --with-xcursor --without-opencl --without-osmesa --with-sdl \
+          ./configure --enable-archs=arm64ec,aarch64,i386 --prefix="$install_prefix" --host=aarch64-linux-android --disable-win16 --disable-amd_ags_x64 --with-mingw=clang --with-wine-tools="$winetools_dir" --enable-win64 --enable-nls --with-pulse --with-alsa --disable-opencl --disable-tests --without-capi --without-coreaudio --without-cups --without-dbus --without-gphoto --without-gssapi --without-krb5 --without-netapi --without-oss --without-pcap --without-pcsclite --without-sane --without-udev --without-unwind --without-usb --without-v4l2 --with-vulkan --with-xcomposite --with-xcursor --without-opencl --without-osmesa --with-sdl \
           --without-gettext --with-gettextpo=no --with-xfixes --without-wayland --with-xinput --with-xinput2 --with-pthread --without-xshape --without-xshm --without-xinerama --without-xxf86vm --enable-wineandroid_drv=no
 
           make -j$(nproc)
