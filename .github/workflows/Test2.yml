@@ -478,6 +478,7 @@ jobs:
             --without-wayland \
             --without-xinerama \
             --without-xxf86vm \
+            --without-ffmpeg \
             --with-vulkan \
             --without-xshm \
             --with-xinput --with-xinput2 \
