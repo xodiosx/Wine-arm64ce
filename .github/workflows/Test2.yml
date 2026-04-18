@@ -368,7 +368,7 @@ jobs:
           cd source
           export PATH="/opt/${LLVMMINGW_NAME}/bin:$PATH"
           if [ ! -f ./configure ]; then
-            ./autogen.sh
+            ./autogen.sh || true
           fi
           mkdir wine-tools-build
           cd wine-tools-build
@@ -403,47 +403,60 @@ jobs:
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
-          # pkg-config
+          # === Environment variables identical to local script ===
+          export WORKDIR="$GITHUB_WORKSPACE"
+          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export LLVM_MINGW_TOOLCHAIN="/opt/llvm-mingw/bin"
+          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
+          export deps="/data/data/com.termux/files/usr"
+          export ARCH="aarch64"
+          export SDKVER="28"
+          export TARGET="aarch64-linux-android"
+          export SDKVER="28"
+          export install_prefix="$WORKDIR/wine-build"
+          export winetools_dir="./wine-tools"
+          export WINEARCH="arm64ec,aarch64,i386"
+
+          export CC="$TOOLCHAIN/$TARGET$SDKVER-clang"
+          export AS=$CC
+          export CXX="$TOOLCHAIN/$TARGET$SDKVER-clang++"
+          export AR="$TOOLCHAIN/llvm-ar"
+          export LD="$TOOLCHAIN/ld"
+          export RANLIB="$TOOLCHAIN/llvm-ranlib"
+          export STRIP="$TOOLCHAIN/llvm-strip"
+          export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
+
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
-
-          # Compiler flags
-          export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
+          #export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
+          export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
-          export LIBRARY_PATH="$deps/lib"
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
-
-          # Environment hints
+          export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export X_CFLAGS="-I$deps/include"
+          export X_LIBS="-L$deps/lib -landroid-shmem"
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
-          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include"
+          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include -I$deps/glib-2.0/include -I$deps/lib/gstreamer-1.0/include"
           export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
+          export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
+          export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
-          echo "=== Android (Unix) compiler ==="
-          $CC --version
-          echo "=== ARM64EC Mingw (PE) compiler ==="
-          arm64ec-w64-mingw32-clang --version
-
-          # Quick linker test
-          echo 'int main(){return 0;}' > test.c
-          $CC test.c -o test $CFLAGS $LDFLAGS || { echo "❌ Unix compiler test failed!"; exit 1; }
-          echo "✅ Unix compiler test passed."
-
+          # === Configure with exact flags from local script ===
           ./configure \
             --enable-archs=arm64ec,aarch64,i386 \
-            --prefix="$install_prefix" \
-            --host=aarch64-linux-android \
-            --disable-win16 \
-            --disable-amd_ags_x64 \
+            --prefix=${install_prefix} \
+            --host=${TARGET}${SDKVER} \
             --with-mingw=clang \
             --with-wine-tools="$winetools_dir" \
             --enable-win64 \
             --enable-nls \
             --with-pulse \
             --with-alsa \
+            --disable-win16 \
             --disable-opencl \
             --disable-tests \
             --without-capi \
@@ -462,28 +475,23 @@ jobs:
             --without-unwind \
             --without-usb \
             --without-v4l2 \
-            --with-vulkan \
-            --with-xcomposite \
-            --with-xcursor \
-            --without-osmesa \
-            --with-sdl \
-            --without-gettext \
-            --with-gettextpo=no \
-            --with-xfixes \
             --without-wayland \
-            --with-xinput \
-            --with-xinput2 \
-            --with-pthread \
-            --without-xshape \
-            --without-xshm \
             --without-xinerama \
             --without-xxf86vm \
+            --with-vulkan \
+            --without-xshm \
+            --with-xinput --with-xinput2 \
+            --with-pthread \
+            --disable-amd_ags_x64 \
             --enable-wineandroid_drv=no
 
+          # === Build and install ===
           make -j$(nproc)
           make install -j$(nproc)
 
+          # === Verify installation ===
           ls -la "$install_prefix/"
+
 
       - name: Strip binaries and clean up
         run: |
