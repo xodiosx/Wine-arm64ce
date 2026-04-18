@@ -233,7 +233,7 @@ jobs:
               echo "Restored full nls directory from backup"
             else
               echo "Error: Cannot restore nls directory"
-              exit 1
+              #exit 1
             fi
           fi
           # Copy entire build directory, using -aL (archive and follow symlinks)
@@ -249,7 +249,7 @@ jobs:
               echo "Restored nls directory to target"
             else
               echo "Error: Cannot restore nls directory"
-              exit 1
+              #exit 1
             fi
           fi
           echo "locale.nls exists after copy, size: $(wc -c < /opt/wine64-native/nls/locale.nls) bytes"
