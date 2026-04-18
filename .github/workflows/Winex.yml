@@ -16,11 +16,10 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout longjunyu2/wine-custom (custom-wine-9.16)
+      - name: Checkout Wine source (from wine branch)
         uses: actions/checkout@v4
         with:
-          repository: longjunyu2/wine-custom
-          ref: custom-wine-9.16
+          ref: bleeding-edge
           fetch-depth: 0
 
       - name: Install host dependencies
