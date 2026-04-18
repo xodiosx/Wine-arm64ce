@@ -1,4 +1,4 @@
-name: xWine mz patch ready ARM64CE Termux (longjunyu2/wine-custom)
+name: all Wine + patch ready for Termux 
 
 on:
   push:
