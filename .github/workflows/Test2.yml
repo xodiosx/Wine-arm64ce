@@ -493,7 +493,6 @@ jobs:
             --with-vulkan \
             --without-xshm \
             --with-xinput --with-xinput2 \
-            --with-pthread \
             --disable-amd_ags_x64 \
             --enable-wineandroid_drv=no
 
