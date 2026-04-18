@@ -202,7 +202,7 @@ jobs:
             --without-sane \
             --without-udev \
             --without-unwind \
-            ----without-usb \
+            --without-usb \
             --without-v4l2 \
             --with-vulkan \
             --with-xcomposite \
