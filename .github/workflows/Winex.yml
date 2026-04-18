@@ -202,7 +202,7 @@ jobs:
           mkdir -p amd64
           cd amd64
           export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
-          if [ -d ../source/configure ]; then
+          if [ -f ../source/configure ]; then
             
           ../source/configure \
             --enable-win64 \
@@ -213,12 +213,13 @@ jobs:
           make __tooldeps__ -j$(nproc) > /dev/null
           echo "Building NLS directory..."
           make -C nls
-          fi
+          
           # Backup the entire nls directory (follow symlinks)
           mkdir -p /opt/nls-backup
           cp -aL nls/. /opt/nls-backup/ || true
           echo "nls directory fully backed up to /opt/nls-backup"
           ls -la /opt/nls-backup/ || true
+          fi
 
       - name: Copy build directory and verify NLS (with recovery mechanism)
         run: |
