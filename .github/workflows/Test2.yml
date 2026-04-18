@@ -143,25 +143,35 @@ jobs:
           fi
 
           echo ""
-          echo "=============================================="
-          echo "4. Fix virtual.c for Android"
+          echo "=============================================="          
+          echo "4. Fix virtual.c for Android (userfaultfd, limits, writewatch)"
           echo "=============================================="
           FILE="dlls/ntdll/unix/virtual.c"
           if [ -f "$FILE" ]; then
-            if grep -q 'unsigned int vprot, sec_flags;' "$FILE"; then
-              echo "   - Initializing uninitialized vprot/sec_flags"
-              sed -i 's/unsigned int vprot, sec_flags;/unsigned int vprot = 0, sec_flags = 0;/g' "$FILE"
+           # 1. Initialize uninitialized variables
+          if grep -q 'unsigned int vprot, sec_flags;' "$FILE"; then
+           echo "   - Initializing uninitialized vprot/sec_flags"
+            sed -i 's/unsigned int vprot, sec_flags;/unsigned int vprot = 0, sec_flags = 0;/g' "$FILE"
             fi
+          # 2. Lower address space limit to avoid conflict with Android loader
             if grep -q '0x7fffffff0000' "$FILE"; then
-              echo "   - Lowering address_space_limit to 0x7fffff0000"
-              sed -i 's/_limit.*0x7fffffff0000/_limit = (void *)0x7fffff0000/g' "$FILE"
-            fi
+            echo "   - Lowering address_space_limit to 0x7fffff0000"
+             sed -i 's/_limit.*0x7fffffff0000/_limit = (void *)0x7fffff0000/g' "$FILE"
+             fi
+          # 3. Disable kernel writewatch (incompatible with Android)
             if grep -q 'use_kernel_writewatch = 1;' "$FILE"; then
-              echo "   - Disabling kernel writewatch (Android incompatible)"
+            echo "   - Disabling kernel writewatch"
               sed -i 's/use_kernel_writewatch = 1;/use_kernel_writewatch = 0;/g' "$FILE"
-            fi
-            echo "✔ virtual.c patched"
-          fi
+              fi
+          # 4. Completely neutralize userfaultfd (Android often blocks it)
+             if grep -q 'uffd_fd = syscall( __NR_userfaultfd' "$FILE"; then
+                echo "   - Neutralizing userfaultfd (set fd = -1)"
+                sed -i 's/uffd_fd = syscall( __NR_userfaultfd/uffd_fd = -1; \/\/ syscall( __NR_userfaultfd/g' "$FILE"
+                # Also make kernel_writewatch_init() return early to skip any setup
+                sed -i '/static void kernel_writewatch_init(void)/{n;s/^{/{\n    return;/}' "$FILE"
+               fi
+          echo "✔ virtual.c fully patched for Android"
+                fi
 
           echo ""
           echo "=============================================="
@@ -454,8 +464,8 @@ jobs:
             --with-wine-tools="$winetools_dir" \
             --enable-win64 \
             --enable-nls \
-            --with-pulse \
-            --with-alsa \
+            --without-pulse \
+            --without-alsa \
             --disable-win16 \
             --disable-opencl \
             --disable-tests \
@@ -463,6 +473,7 @@ jobs:
             --without-coreaudio \
             --without-cups \
             --without-dbus \
+            --with-gstreamer \
             --without-gphoto \
             --without-gssapi \
             --without-krb5 \
