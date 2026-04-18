@@ -284,6 +284,22 @@ jobs:
             sed -i '/.p_get_host_surface_extension = win32u_get_host_surface_extension,/a \    .p_vkSetLatencySleepModeNV = win32u_vkSetLatencySleepModeNV,' "$FILE_VULKAN_C"
             echo "✔ vulkan.c latency logic patched"
           fi
+          
+          PATCH_BASE="https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/path"
+          for i in 1 2 3 4 5 6 7 8; do
+          echo "Downloading and applying ${i}.patch ..."
+          wget -q -O "${i}.patch" "${PATCH_BASE}/${i}.patch"
+          if git apply --check "${i}.patch" 2>/dev/null; then
+            git apply --whitespace=fix "${i}.patch"
+           echo "✔ ${i}.patch applied cleanly"
+          elif git apply --3way --check "${i}.patch" 2>/dev/null; then
+          git apply --3way --whitespace=fix "${i}.patch"
+          echo "✔ ${i}.patch applied with 3-way merge"
+          else
+           echo "⚠ ${i}.patch failed – trying with --reject"
+           git apply --reject --whitespace=fix "${i}.patch" || true
+          fi
+          done
 
           echo ""
           echo "=============================================="
@@ -382,7 +398,7 @@ jobs:
           fi
           mkdir wine-tools-build
           cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-gstreamer
+          ../configure --without-x --without-vulkan --without-wayland
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
