@@ -406,16 +406,19 @@ jobs:
           #endif /* sys/shm.h */
           EOF
 
-      - name: Termux
+      - name: Termux (Apply patches and hacks)
         run: |
+          set -e
           cd ${{ env.WINE_SOURCE_DIR }}/source
           
+          # Basic termux path fixes
           find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) -exec grep -l "/tmp" {} \; 2>/dev/null | xargs sed -i 's|/tmp/|/data/data/com.termux/files/usr/tmp/|g' 2>/dev/null || true
           find server -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
           find . -name "file.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
           find . -name "loader.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
           find . -name "server.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
 
+          # InterlockedOr fix
           FILE="dlls/atiadlxx/atiadlxx_main.c"
           if [ -f "$FILE" ]; then
             if grep -q 'InterlockedOr(&dummy, 0)' "$FILE"; then
@@ -427,6 +430,7 @@ jobs:
             fi
           fi
 
+          # wdscore stub cleanup
           FILE3="dlls/wdscore/wdscore.spec"
           if [ -f "$FILE3" ]; then
             if grep -q '@ stub' "$FILE3"; then
@@ -438,6 +442,7 @@ jobs:
             fi
           fi
 
+          # virtual.c fixes
           FILE="dlls/ntdll/unix/virtual.c"
           if [ -f "$FILE" ]; then
             if grep -q 'unsigned int vprot, sec_flags;' "$FILE"; then
@@ -454,6 +459,7 @@ jobs:
             fi
           fi
 
+          # loader.c patches
           FILE_LOADER="dlls/ntdll/loader.c"
           if [ -f "$FILE_LOADER" ]; then
             echo "Applying combined patches to loader.c..."
@@ -468,6 +474,7 @@ jobs:
             echo "✔ All loader.c patches applied."
           fi
 
+          # wine.inf libarm64ecfex.dll substitution
           INF="loader/wine.inf.in"
           if [ -f "$INF" ] && ! grep -q 'libarm64ecfex.dll' "$INF"; then
               echo "Patching wine.inf for FEX libraries..."
@@ -476,7 +483,7 @@ jobs:
               echo "✔ wine.inf integrated patch applied."
           fi
 
-          # 8. Vulkan VRAM Faking applied
+          # Vulkan VRAM faking
           FILE="dlls/winevulkan/vulkan.c"
           if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE" ; then
             echo "Applying VRAM faking to winevulkan..."
@@ -491,20 +498,21 @@ jobs:
               }' "$FILE"
           fi
 
+          # Add -lpulse to winepulse.drv
           FILE_PULSE_MK="dlls/winepulse.drv/Makefile.in"
           if [ -f "$FILE_PULSE_MK" ]; then
             echo "Adding -lpulse to $FILE_PULSE_MK..."
             sed -i 's/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm -lpulse/' "$FILE_PULSE_MK"
           fi
 
-          # 2. winex11.drv Makefile patch
+          # Add -landroid-shmem to winex11.drv
           FILE_X11_MK="dlls/winex11.drv/Makefile.in"
           if [ -f "$FILE_X11_MK" ]; then
             echo "Adding -landroid-shmem to $FILE_X11_MK..."
-            # Append -landroid-shmem after existing line
             sed -i 's/$(PTHREAD_LIBS) -lm/$(PTHREAD_LIBS) -lm -landroid-shmem/' "$FILE_X11_MK"
           fi
 
+          # Replace xtajit strings globally
           find . -type f \( -name "*.c" -o -name "*.h" \) \
             -exec sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' {} +
           find . -type f \( -name "*.c" -o -name "*.h" \) \
@@ -512,35 +520,77 @@ jobs:
           find dlls/ntdll -type f \( -name "*.c" -o -name "*.h" \) \
             -exec sed -i 's|x86_64-windows|aarch64-windows|g' {} +
 
+          # ============================================================
+          # ROBUST VULKAN LATENCY PATCH (fixes struct vulkan_device)
+          # ============================================================
+          echo "=== Applying Vulkan latency patch to vulkan_driver.h ==="
           FILE_VULKAN_H="include/wine/vulkan_driver.h"
-          if [ -f "$FILE_VULKAN_H" ] && ! grep -q "low_latency_enabled" "$FILE_VULKAN_H"; then
-            echo "Patching $FILE_VULKAN_H for Universal Latency Control..."
-            # Add generic flags and standard function pointers next to existing flag
-            sed -i '/keyed_mutexes_enabled;/a \    BOOL low_latency_enabled;\n    BOOL use_standard_latency;' "$FILE_VULKAN_H"
-            sed -i '/PFN_vkQueuePresentKHR p_vkQueuePresentKHR;/a \    PFN_vkSetLatencySleepModeNV p_vkSetLatencySleepModeNV;\n    PFN_vkWaitForPresentKHR p_vkWaitForPresentKHR;' "$FILE_VULKAN_H"
+          if [ -f "$FILE_VULKAN_H" ]; then
+            # Backup original
+            cp "$FILE_VULKAN_H" "$FILE_VULKAN_H.bak"
+            
+            # Check if already patched
+            if grep -q "low_latency_enabled" "$FILE_VULKAN_H"; then
+              echo "✔ vulkan_driver.h already contains low_latency_enabled"
+            else
+              echo "🔧 Patching vulkan_driver.h..."
+              
+              # METHOD 1: Insert after keyed_mutexes_enabled (most common)
+              if grep -q "keyed_mutexes_enabled" "$FILE_VULKAN_H"; then
+                sed -i '/keyed_mutexes_enabled;/a \    BOOL low_latency_enabled;\n    BOOL use_standard_latency;' "$FILE_VULKAN_H"
+                echo "  - Added fields after keyed_mutexes_enabled"
+              else
+                # METHOD 2: Insert before closing brace of struct vulkan_device
+                echo "  - keyed_mutexes_enabled not found, inserting before closing brace"
+                # Find the line with "struct vulkan_device" and then find its closing brace
+                awk '/^struct vulkan_device/,/^};/ { if (/^};/) print "    BOOL low_latency_enabled;\n    BOOL use_standard_latency;"; print; next } 1' "$FILE_VULKAN_H" > "$FILE_VULKAN_H.tmp"
+                mv "$FILE_VULKAN_H.tmp" "$FILE_VULKAN_H"
+              fi
+              
+              # Add function pointers after PFN_vkQueuePresentKHR
+              if grep -q "PFN_vkQueuePresentKHR" "$FILE_VULKAN_H"; then
+                sed -i '/PFN_vkQueuePresentKHR/s/$/\n    PFN_vkSetLatencySleepModeNV p_vkSetLatencySleepModeNV;\n    PFN_vkWaitForPresentKHR p_vkWaitForPresentKHR;/' "$FILE_VULKAN_H"
+                echo "  - Added function pointers after PFN_vkQueuePresentKHR"
+              else
+                echo "  ⚠ PFN_vkQueuePresentKHR not found, skipping function pointers"
+              fi
+            fi
+            
+            # Verify patch
+            echo "=== Verification of vulkan_driver.h after patching ==="
+            grep -E "(low_latency|use_standard|keyed_mutexes|PFN_vkQueuePresentKHR)" "$FILE_VULKAN_H" | head -10 || echo "⚠ Verification failed"
+          else
+            echo "❌ $FILE_VULKAN_H not found"
           fi
 
+          # Patch vulkan.c to use the new fields
           FILE_VULKAN_C="dlls/win32u/vulkan.c"
           if [ -f "$FILE_VULKAN_C" ] && ! grep -q "win32u_vkSetLatencySleepModeNV" "$FILE_VULKAN_C"; then
-            echo "Applying Universal Vulkan Latency patch (NVIDIA + Turnip/Standard)..."
-
-            # 1. Insert function definition and standard wait helper function
-            FUNC_DEF="static VkResult win32u_vkSetLatencySleepModeNV(VkDevice device, VkSwapchainKHR swapchain, const VkLatencySleepModeInfoNV *pSleepModeInfo) { VkLatencySleepModeInfoNV host; struct vulkan_device *vk_dev = vulkan_device_from_handle(device); struct swapchain *vk_sw = swapchain_from_handle(swapchain); vk_dev->low_latency_enabled = pSleepModeInfo->lowLatencyMode; vk_dev->use_standard_latency = pSleepModeInfo->lowLatencyMode; host.sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV; host.pNext = NULL; host.lowLatencyMode = pSleepModeInfo->lowLatencyMode; host.lowLatencyBoost = pSleepModeInfo->lowLatencyBoost; host.minimumIntervalUs = pSleepModeInfo->minimumIntervalUs; return vk_dev->p_vkSetLatencySleepModeNV(vk_dev->host.device, vk_sw->obj.host.swapchain, &host); }\\n\\nstatic void win32u_apply_standard_latency(struct vulkan_device *dev, VkSwapchainKHR sw, uint64_t id) { if (dev->p_vkWaitForPresentKHR) dev->p_vkWaitForPresentKHR(dev->host.device, sw, id, 1000000000); }\\n\\n#define win32u_vk_find_struct(s, t) win32u_vk_find_struct_((void *)s, VK_STRUCTURE_TYPE_##t)\\nstatic void *win32u_vk_find_struct_(void *s, VkStructureType t) { VkBaseOutStructure *h; for (h = s; h; h = h->pNext) { if (h->sType == t) return h; } return NULL; }\\n"
+            echo "🔧 Applying Universal Vulkan Latency patch to vulkan.c..."
+            
+            # Insert function definitions at an appropriate location (before first use)
+            FUNC_DEF='static VkResult win32u_vkSetLatencySleepModeNV(VkDevice device, VkSwapchainKHR swapchain, const VkLatencySleepModeInfoNV *pSleepModeInfo) { VkLatencySleepModeInfoNV host; struct vulkan_device *vk_dev = vulkan_device_from_handle(device); struct swapchain *vk_sw = swapchain_from_handle(swapchain); vk_dev->low_latency_enabled = pSleepModeInfo->lowLatencyMode; vk_dev->use_standard_latency = pSleepModeInfo->lowLatencyMode; host.sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV; host.pNext = NULL; host.lowLatencyMode = pSleepModeInfo->lowLatencyMode; host.lowLatencyBoost = pSleepModeInfo->lowLatencyBoost; host.minimumIntervalUs = pSleepModeInfo->minimumIntervalUs; return vk_dev->p_vkSetLatencySleepModeNV(vk_dev->host.device, vk_sw->obj.host.swapchain, &host); }\n\nstatic void win32u_apply_standard_latency(struct vulkan_device *dev, VkSwapchainKHR sw, uint64_t id) { if (dev->p_vkWaitForPresentKHR) dev->p_vkWaitForPresentKHR(dev->host.device, sw, id, 1000000000); }\n\n#define win32u_vk_find_struct(s, t) win32u_vk_find_struct_((void *)s, VK_STRUCTURE_TYPE_##t)\nstatic void *win32u_vk_find_struct_(void *s, VkStructureType t) { VkBaseOutStructure *h; for (h = s; h; h = h->pNext) { if (h->sType == t) return h; } return NULL; }\n'
+            
+            # Insert before first occurrence of win32u_vkCreateSwapchainKHR
             sed -i "/static VkResult win32u_vkCreateSwapchainKHR/i $FUNC_DEF" "$FILE_VULKAN_C"
-
-            # 2. Insert variable declarations
+            
+            # Insert variable declarations in queue submit function
             sed -i '/VkPipelineStageFlags waitStage/a \        VkLatencySubmissionPresentIdNV latencySubmitInfo;\n        VkPresentIdKHR *present_id;' "$FILE_VULKAN_C"
-
-            # 3. Insert logic (NVIDIA specific + Turnip/Standard common)
+            
+            # Insert latency logic before vkQueuePresentKHR call
             QUEUE_LOGIC="        if ((present_id = win32u_vk_find_struct(&present_info_host, PRESENT_ID_KHR))) { if (queue->device->low_latency_enabled) { latencySubmitInfo.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV; latencySubmitInfo.pNext = NULL; latencySubmitInfo.presentID = *present_id->pPresentIds; submitInfo.pNext = &latencySubmitInfo; } if (queue->device->use_standard_latency) win32u_apply_standard_latency(queue->device, present_info->pSwapchains[0], *present_id->pPresentIds); }"
             sed -i "/submitInfo.pSignalSemaphores = &blit_sema;/a $QUEUE_LOGIC" "$FILE_VULKAN_C"
-
-            # 4. Register structure functions
-            sed -i '/.p_get_host_surface_extension = win32u_get_host_surface_extension,/a \    .p_vkSetLatencySleepModeNV = win32u_vkSetLatencySleepModeNV,' "$FILE_VULKAN_C"
+            
+            # Register the function in the dispatch table
+            sed -i '/\.p_get_host_surface_extension = win32u_get_host_surface_extension,/a \    .p_vkSetLatencySleepModeNV = win32u_vkSetLatencySleepModeNV,' "$FILE_VULKAN_C"
+            
+            echo "✔ vulkan.c patched"
           fi
 
+          # ============================================================
+          # Apply external patches (1.patch to 8.patch)
+          # ============================================================
           export PATCH_BASE="https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/path"
-
           PATCH_FILES="1.patch 2.patch 3.patch 4.patch 5.patch 6.patch 7.patch 8.patch"
           echo "Applying external patches from $PATCH_BASE..."
           for FILE in $PATCH_FILES; do
@@ -565,11 +615,12 @@ jobs:
           echo "--------------------------------------------"
           echo "✔ All patch processes completed"
 
+          # Regenerate configure if necessary
           if [ ! -f "configure" ]; then
             ./autogen.sh || true
           fi
 
-      - name: ARM64 WOW64
+      - name: ARM64 WOW64 Build
         run: |
           cd ${{ env.WINE_SOURCE_DIR }}/source
           mkdir -p build-arm64
@@ -581,7 +632,6 @@ jobs:
           export TOOLCHAIN="$HOME/Android/Sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export TARGET=aarch64-linux-android28
           export CC=$TOOLCHAIN/$TARGET-clang
-          # export AS=$CC
           export CXX=$TOOLCHAIN/$TARGET-clang++      
           
           export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
@@ -667,19 +717,16 @@ jobs:
           SOURCE_DIR="${{ env.WINE64_DIR }}/source"
           NATIVE_NLS_DIR="/opt/wine64-native/nls"
           
-          # Termux is always aarch64 environment
           WINE_ARCH="aarch64"
 
           echo "=== 1. Create structure and collect all libraries ==="
           mkdir -p "$TARGET_PREFIX/share/wine/nls"
           mkdir -p "$TARGET_PREFIX/share/wine/fonts"
 
-          # [Important] Collect all .so before deletion (secure original files)
           find "$BUILD_DIR" -name "ntdll.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
           find "$BUILD_DIR/dlls" -name "*.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
           find "$BUILD_DIR/programs" -name "*.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
 
-          # After collection, remove unnecessary folders (copies exist, safe)
           if [ -d "$BUILD_DIR/dlls/ntdll/aarch64-windows" ]; then
               echo "✔ aarch64-windows detected. Cleaning x86_64-unix remnants."
               rm -rf "$TARGET_PREFIX/lib/wine/x86_64-unix"
@@ -696,11 +743,9 @@ jobs:
               [ -n "$found" ] && cp -vL "$found" "$TARGET_PREFIX/arm64-v8a/bin/" || echo "⚠ $prog not found"
           done
 
-          echo "=== 4. Recreate symlinks (prevent absolute path errors) ==="
-          # Check if ntdll.so actually exists, then create link
+          echo "=== 4. Recreate symlinks ==="
           if [ -f "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/ntdll.so" ]; then
               cd "$TARGET_PREFIX/arm64-v8a/bin"
-              # Ensure relative path is correct by linking from within directory
               ln -sf "../lib/wine/$WINE_ARCH-unix/ntdll.so" "ntdll.so"
               echo "✔ ntdll.so symlink created"
           else
@@ -712,12 +757,8 @@ jobs:
           fi
           echo "=== Final verification ==="
           ls -l "$TARGET_PREFIX/arm64-v8a/bin/ntdll.so"
-          # Double-check that the link points to an existing file
           ls -L "$TARGET_PREFIX/arm64-v8a/bin/ntdll.so" || { echo "❌ Broken link!"; exit 1; }
 
-      # ------------------------------------------------------------
-      # 13. Verify installation directory contents (optional for debugging)
-      # ------------------------------------------------------------
       - name: Verify installation directory contents
         run: |
           echo "Contents of installation directory /tmp/wine-install-wow64:"
@@ -731,9 +772,6 @@ jobs:
             ls -la /tmp/wine-install-wow64/share/
           fi
 
-      # ------------------------------------------------------------
-      # 14. Package
-      # ------------------------------------------------------------
       - name: Prepare packaging
         run: |
           mkdir -p wine-package/wine 
