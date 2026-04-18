@@ -148,9 +148,9 @@ jobs:
           export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
           export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
           # CRITICAL: --no-as-needed forces libandroid-shmem to be kept, solving shm_open/shm_unlink
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -Wl,--no-as-needed -Wl,--rosegment"
+          #export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib -Wl,--no-as-needed -Wl,--rosegment"
           export LIBRARY_PATH="$deps/lib"
-
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
 
 
           # Environment hints
@@ -161,7 +161,7 @@ jobs:
           export SDL2_LIBS="-L$deps/lib -lSDL2"
           export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include"
           export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
-          export LIBS="$deps/lib/libandroid-shmem.so $deps/lib/libandroid-spawn.so"
+          #export LIBS="$deps/lib/libandroid-shmem.so $deps/lib/libandroid-spawn.so"
           echo "=== Android (Unix) compiler ==="
           $CC --version
           echo "=== ARM64EC Mingw (PE) compiler ==="
@@ -179,14 +179,13 @@ jobs:
           ./configure \
             --enable-archs=i386,aarch64 \
             --prefix="$install_prefix" \
-            --host="$TARGET" \
+            --host=aarch64-linux-android \
             --with-mingw \
             --with-wine-tools="$winetools_dir" \
             --enable-win64 \
             --enable-nls \
             --with-pulse \
             --with-alsa \
-            --disable-win16 \
             --disable-opencl \
             --disable-tests \
             --without-capi \
@@ -203,9 +202,24 @@ jobs:
             --without-sane \
             --without-udev \
             --without-unwind \
-            --without-usb \
+            ----without-usb \
             --without-v4l2 \
+            --with-vulkan \
+            --with-xcomposite \
+            --with-xcursor \
+            --without-v4l2 \
+            --without-opencl \
+            --with-osmesa \
+            --with-sdl \
+            --without-gettext \
+            --with-gettextpo=no \
+            --with-xfixes \
             --without-wayland \
+            --with-xinput \
+            --with-xinput2 \
+            --with-pthread \
+            --without-xshape \
+            --without-xshm \
             --without-xinerama \
             --without-xxf86vm \
             --enable-wineandroid_drv=no
