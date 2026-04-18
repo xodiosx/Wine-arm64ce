@@ -208,8 +208,7 @@ jobs:
             --with-xcomposite \
             --with-xcursor \
             --without-v4l2 \
-            --without-opencl \
-            --with-osmesa \
+            --without-opencl \          
             --with-sdl \
             --without-gettext \
             --with-gettextpo=no \
