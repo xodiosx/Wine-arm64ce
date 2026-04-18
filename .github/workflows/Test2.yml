@@ -398,7 +398,7 @@ jobs:
           fi
           mkdir wine-tools-build
           cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-wayland
+          ../configure --without-x --without-vulkan 
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
