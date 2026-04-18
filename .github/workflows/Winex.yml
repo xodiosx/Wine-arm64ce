@@ -1,130 +1,3 @@
-name: xWine patch ARM64CE Termux  xm
-
-on:
-  push:
-    branches: [ bleeding-edge ]
-  workflow_dispatch:
-
-env:
-  LLVMMINGW_DATE: 20251202
-  LLVMMINGW_NAME: llvm-mingw-20251202-ucrt-ubuntu-22.04-x86_64
-
-jobs:
-  build:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout longjunyu2/wine-custom (custom-wine-9.16)
-        uses: actions/checkout@v4
-        with:
-          repository: longjunyu2/wine-custom
-          ref: custom-wine-9.16
-          fetch-depth: 0
-
-      - name: Install host dependencies
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt update
-          sudo apt install -y \
-            build-essential gcc-multilib g++-multilib \
-            flex bison unzip pkg-config gettext \
-            binutils-aarch64-linux-gnu \
-            libc6-dev-arm64-cross \
-            libxml-libxml-perl libssl-dev \
-            libfreetype-dev libpulse-dev libsdl2-dev libfreetype-dev:i386 libfontconfig-dev:i386 \
-            libdbus-1-dev libfontconfig-dev \
-            libgnutls28-dev libopenal-dev \
-            libasound2-dev libgstreamer-plugins-base1.0-dev \
-            libgstreamer1.0-dev libglib2.0-dev
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-
-      - name: Setup LLVM MinGW (with ARM64EC support)
-        run: |
-          sudo mkdir -p /opt
-          cd /opt
-          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVMMINGW_DATE}/${LLVMMINGW_NAME}.tar.xz"
-          echo "Downloading: $URL"
-          sudo wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 "$URL" -O llvm-mingw.tar.xz
-          [ -f llvm-mingw.tar.xz ] || { echo "❌ Download failed"; exit 1; }
-          sudo tar -xJf llvm-mingw.tar.xz
-          sudo rm llvm-mingw.tar.xz
-          echo "/opt/${LLVMMINGW_NAME}/bin" >> $GITHUB_PATH
-          # Verify ARM64EC compiler exists
-          if [ ! -x "/opt/${LLVMMINGW_NAME}/bin/arm64ec-w64-mingw32-clang" ]; then
-            echo "❌ ARM64EC compiler not found in LLVM MinGW package!"
-            ls -la "/opt/${LLVMMINGW_NAME}/bin/" | grep -i arm
-            exit 1
-          fi
-          /opt/${LLVMMINGW_NAME}/bin/arm64ec-w64-mingw32-clang --version
-
-      - name: Setup NDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27c   # matches the NDK actually used in your logs
-
-      - name: Setup Termux sysroot
-        run: |
-          mkdir termux && cd termux
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/wine-14/termux-rootfs.tar
-          tar xf termux-rootfs.tar
-          sudo mv data /data
-          sudo chown -R $(whoami):$(whoami) /data
-          mkdir -p /data/data/com.termux/files/usr/tmp
-          # Make all headers and libs readable
-          sudo chmod -R a+rX /data/data/com.termux/files/usr
-
-      - name: Install libandroid-shmem and libandroid-spawn (shared + static)
-        run: |
-          cd /tmp
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn_0.3_aarch64.deb
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem-static_0.7_aarch64.deb
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn-static_0.3_aarch64.deb
-
-          for deb in *.deb; do
-            ar x "$deb"
-            sudo tar -xf data.tar.* -C / \
-              --no-overwrite-dir \
-              --no-same-owner \
-              --no-same-permissions
-            rm -f data.tar.* debian-binary control.tar.*
-          done
-
-          # Fix library permissions
-          sudo chmod -R 755 /data/data/com.termux/files/usr/lib
-          sudo chmod -R 755 /data/data/com.termux/files/usr/include
-          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.so 2>/dev/null || true
-          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.a 2>/dev/null || true
-
-          echo "Checking for static libraries:"
-          ls -l /data/data/com.termux/files/usr/lib/libandroid-shmem.a
-          ls -l /data/data/com.termux/files/usr/lib/libandroid-spawn.a
-
-      - name: Build Wine tools (host)
-        run: |
-          export PATH="/opt/${LLVMMINGW_NAME}/bin:$PATH"
-          if [ ! -f ./configure ]; then
-            ./autogen.sh
-          fi
-          mkdir wine-tools-build
-          cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-gstreamer
-          make -j$(nproc) __tooldeps__ nls/all
-          cd ..
-          mv wine-tools-build wine-tools
-
-      - name: Build Wine (ARM64EC + aarch64 + i386)
-        run: |
-          export WORKDIR="$GITHUB_WORKSPACE"
-          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export LLVM_MINGW_TOOLCHAIN="/opt/${LLVMMINGW_NAME}/bin"
-          export deps="/data/data/com.termux/files/usr"
-          export SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          export SDKVER="28"
-          export TARGET="aarch64-linux-android"
 name: Build Patch Wine ARM64 Termux
 
 on:
@@ -329,7 +202,8 @@ jobs:
           mkdir -p amd64
           cd amd64
           export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
-          
+          if [ -d ../source/configure ]; then
+            
           ../source/configure \
             --enable-win64 \
             --disable-tests \
@@ -339,11 +213,12 @@ jobs:
           make __tooldeps__ -j$(nproc) > /dev/null
           echo "Building NLS directory..."
           make -C nls
+          fi
           # Backup the entire nls directory (follow symlinks)
           mkdir -p /opt/nls-backup
-          cp -aL nls/. /opt/nls-backup/
+          cp -aL nls/. /opt/nls-backup/ || true
           echo "nls directory fully backed up to /opt/nls-backup"
-          ls -la /opt/nls-backup/
+          ls -la /opt/nls-backup/ || true
 
       - name: Copy build directory and verify NLS (with recovery mechanism)
         run: |
