@@ -1,424 +1,120 @@
-name: Build fPatch Wine ARM64 Termux
+name: xWine mz patch ready ARM64CE Termux (longjunyu2/wine-custom)
 
 on:
+  push:
+    branches: [ bleeding-edge ]
   workflow_dispatch:
     inputs:
-      wine_branch:
-        description: 'Wine branch'
-        required: false
-        default: 'proton'
+      wine_source:
+        description: 'Wine source repository'
+        required: true
+        default: 'winearm64ec'
         type: choice
         options:
-        - proton
-        - staging
-        - winearm64ec
-        - hangover
-        - longjunyu2-custom-9.16
+          - proton
+          - staging
+          - winearm64ec
+          - hangover
+          - longjunyu2-custom-9.16
       wine_version:
-        description: 'Wine version (e.g., 9.22, or latest)'
+        description: 'Wine version (tag, branch, or commit; leave empty for default)'
         required: false
-        default: 'latest'
+        default: ''
         type: string
+      enable_patches:
+        description: 'Apply Termux/Android compatibility patches'
+        required: true
+        default: true
+        type: boolean
 
 env:
   LLVMMINGW_DATE: 20251202
   LLVMMINGW_NAME: llvm-mingw-20251202-ucrt-ubuntu-22.04-x86_64
-  WINE64_DIR: /opt/wine64
-  WINE_SOURCE_DIR: /opt/wine-src
-  DEBIAN_FRONTEND: noninteractive
-
-permissions:
-  contents: write
 
 jobs:
-  build-wine-wow64:
-    runs-on: ubuntu-latest
-    container:
-      image: debian:12
-      options: --user root
-    timeout-minutes: 180
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
 
     steps:
-      - name: Install basic tools
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            ca-certificates wget git curl gnupg sudo xz-utils g++ file
-
-      - uses: actions/checkout@v4
-
       # ------------------------------------------------------------
-      # 1. Configure APT sources (support amd64 and arm64)
+      # 1. Clone selected Wine source
       # ------------------------------------------------------------
-      - name: APT
+      - name: Clone Wine source
         run: |
-          echo "🧹 Freeing disk space..."
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          WINE_SOURCE="${{ github.event.inputs.wine_source || 'longjunyu2-custom-9.16' }}"
+          WINE_VERSION="${{ github.event.inputs.wine_version || '' }}"
 
-      - name: Dockerfile (Optimized for Sysroot)
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            build-essential git make cmake ninja-build autoconf automake \
-            libtool pkg-config gettext flex bison nasm \
-            python3 python3-setuptools ca-certificates wget \
-            curl xz-utils file libfreetype6-dev \
-            clang llvm lld unzip \
-            binutils-aarch64-linux-gnu \
-            mingw-w64 gradle \
-            librsvg2-bin \
-            dpkg-dev \
-            fakeroot \
-            less
+          echo "Selected Wine source: $WINE_SOURCE"
+          echo "Version override: $WINE_VERSION"
 
-      - name: Download and extract termuxfs for aarch64
-        run: |
-          mkdir -p $HOME/termuxfs/aarch64
-          cd $HOME/termuxfs/aarch64
-          wget https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
-          tar -xf termuxfs.tar
-          ls -la $HOME/termuxfs/aarch64/
-
-      - name: Cache Android NDK
-        id: cache-ndk
-        uses: actions/cache@v4
-        with:
-          path: ~/Android/Sdk/ndk/27.3.13750724
-          key: android-ndk-r27d
-      
-      - name: Set up Android NDK
-        if: steps.cache-ndk.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p $HOME/Android/Sdk/ndk
-          cd $HOME/Android/Sdk/ndk
-          wget https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
-          unzip -q android-ndk-r27d-linux.zip
-          mv android-ndk-r27d 27.3.13750724
-
-      - name: llvm-mingw
-        run: |
-          mkdir -p /opt
-          cd /opt
-          wget https://github.com/mstorsjo/llvm-mingw/releases/download/${{ env.LLVMMINGW_DATE }}/${{ env.LLVMMINGW_NAME }}.tar.xz
-          tar -xJf ${{ env.LLVMMINGW_NAME }}.tar.xz
-          rm ${{ env.LLVMMINGW_NAME }}.tar.xz
-          echo "/opt/${{ env.LLVMMINGW_NAME }}/bin" >> $GITHUB_PATH
-
-      - name: locales
-        run: |
-          apt-get install -y locales
-          sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
-          locale-gen
-          echo "LANG=en_US.UTF-8" >> $GITHUB_ENV
-          echo "LC_ALL=en_US.UTF-8" >> $GITHUB_ENV
-          echo "LANGUAGE=en_US:en" >> $GITHUB_ENV
- 
-      - name: Wine
-        run: |
-          set -e
-          WINE_BRANCH="${{ github.event.inputs.wine_branch || 'staging' }}"
-          WINE_VERSION="${{ github.event.inputs.wine_version || 'latest' }}"
-
-          mkdir -p ${{ env.WINE_SOURCE_DIR }}
-          cd ${{ env.WINE_SOURCE_DIR }}
-
-          case "$WINE_BRANCH" in
-            hangover)
-              echo "Processing Hangover branch"
-              git clone -b arm64ec https://github.com/AndreRH/hangover.git source
-              cd source
-              git config advice.detachedHead false
-              if [ "$WINE_VERSION" != "latest" ]; then
-                git checkout "$WINE_VERSION"
-              fi
-              WINE_VERSION_ACTUAL=$(git describe --tags --abbrev=0 2>/dev/null || echo "$WINE_VERSION")
-              ;;
-            longjunyu2-custom-9.16)
-              echo "Processing longjunyu2/wine-custom 9.16 branch"
-              git clone -b custom-wine-9.16 https://github.com/longjunyu2/wine-custom.git source
-              cd source
-              git config advice.detachedHead false
-              WINE_VERSION_ACTUAL="9.16-custom"
-              ;;
-            winearm64ec)
-              echo "Processing protonarm64ec branch"
-              git clone -b "proton_9.0" https://github.com/ValveSoftware/wine.git source
-              cd source
-              git config advice.detachedHead false
-              if [ "$WINE_VERSION" != "latest" ]; then
-                git checkout "$WINE_VERSION"
-              fi
-              WINE_VERSION_ACTUAL=$(git describe --tags --abbrev=0 2>/dev/null || echo "$WINE_VERSION")
+          case "$WINE_SOURCE" in
+            proton)
+              REPO="https://github.com/ValveSoftware/wine.git"
+              BRANCH="proton_10.0"
               ;;
             staging)
-              echo "Staging branch"
-              git clone https://github.com/wine-mirror/wine.git source
-              cd source
-              git config advice.detachedHead false
-              if [ "$WINE_VERSION" != "latest" ]; then
-                git checkout "$WINE_VERSION"
-              fi
-              WINE_VERSION_ACTUAL=$(git describe --tags --abbrev=0 2>/dev/null || echo "$WINE_VERSION")
+              REPO="https://github.com/wine-mirror/wine.git"
+              BRANCH="master"
               ;;
-            proton)
-              echo "Processing Proton branch"
-              PROTON_BRANCH="${{ github.event.inputs.proton_branch || 'proton_10.0' }}"
-              PROTON_COMMIT="${{ github.event.inputs.proton_commit || '' }}"
-              git clone -b "$PROTON_BRANCH" https://github.com/ValveSoftware/wine.git source
-              cd source
-              git config advice.detachedHead false
-              if [ "$WINE_VERSION" != "latest" ]; then
-                git checkout "$WINE_VERSION"
-              fi
-              WINE_VERSION_ACTUAL=$(git describe --tags --abbrev=0 2>/dev/null || echo "$WINE_VERSION")
+            winearm64ec)
+              REPO="https://github.com/xodiosx/Wine-arm64ce.git"
+              BRANCH="bleeding-edge"
+              ;;
+            hangover)
+              REPO="https://github.com/AndreRH/hangover.git"
+              BRANCH="master"
+              ;;
+            longjunyu2-custom-9.16)
+              REPO="https://github.com/longjunyu2/wine-custom.git"
+              BRANCH="custom-wine-9.16"
               ;;
             *)
-              echo "Unknown branch: $WINE_BRANCH"
+              echo "❌ Unknown source: $WINE_SOURCE"
               exit 1
               ;;
           esac
 
+          git clone -b "$BRANCH" "$REPO" source
+          cd source
+
+          if [ -n "$WINE_VERSION" ]; then
+            echo "Checking out specific version: $WINE_VERSION"
+            git fetch --tags --all
+            git checkout "$WINE_VERSION" || { echo "❌ Failed to checkout $WINE_VERSION"; exit 1; }
+          fi
+
           COMMIT_HASH=$(git rev-parse --short HEAD)
-          BUILD_NAME="wine-${WINE_VERSION_ACTUAL}-${COMMIT_HASH}-${WINE_BRANCH}-arm64-wow64"
-          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
-          echo "WINE_VERSION_ACTUAL=$WINE_VERSION_ACTUAL" >> $GITHUB_ENV
-          echo "Source preparation complete, build name: $BUILD_NAME"
+          echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
+          echo "WINE_SOURCE_NAME=$WINE_SOURCE" >> $GITHUB_ENV
+          echo "✅ Wine source ready at ./source"
 
-      - name: configure
+      # ------------------------------------------------------------
+      # 2. (Optional) Apply Termux & Android patches
+      # ------------------------------------------------------------
+      - name: Apply Termux and Android compatibility patches
+        if: ${{ github.event.inputs.enable_patches != 'false' }}
         run: |
-          set -e
-          mkdir -p ${{ env.WINE64_DIR }}
-          cp -r ${{ env.WINE_SOURCE_DIR }}/source ${{ env.WINE64_DIR }}/source
-          cd ${{ env.WINE64_DIR }}/source
-          if [ ! -f ./configure ]; then
-            ./autogen.sh || true
-          fi
+          cd source
 
-      - name: native wine64 NLS
-        run: |
-          cd ${{ env.WINE64_DIR }}
-          mkdir -p amd64
-          cd amd64
-          export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
-          if [ -f ../source/configure ]; then
-           
-          ../source/configure \
-            --enable-win64 \
-            --disable-tests \
-            --without-x \
-            --without-vulkan \
-            --without-wayland
-          make __tooldeps__ -j$(nproc) > /dev/null
-          echo "Building NLS directory..."
-          make -C nls
-          # Backup the entire nls directory (follow symlinks)
-          mkdir -p /opt/nls-backup
-          cp -aL nls/. /opt/nls-backup/
-          echo "nls directory fully backed up to /opt/nls-backup"
-          ls -la /opt/nls-backup/
-          fi
-
-      - name: Copy build directory and verify NLS (with recovery mechanism)
-        run: |
-          set -e
-          mkdir -p /opt/wine64-native
-          # Check if source file exists; if not, restore from backup
-          if [ ! -f ${{ env.WINE64_DIR }}/amd64/nls/locale.nls ] && [ ! -L ${{ env.WINE64_DIR }}/amd64/nls/locale.nls ]; then
-            echo "Warning: nls/locale.nls missing in source directory, attempting restore from backup"
-            if [ -d /opt/nls-backup ]; then
-              mkdir -p ${{ env.WINE64_DIR }}/amd64/nls
-              cp -af /opt/nls-backup/. ${{ env.WINE64_DIR }}/amd64/nls/
-              echo "Restored full nls directory from backup"
-            else
-              echo "Error: Cannot restore nls directory"
-              #exit 1
-            fi
-          fi
-          # Copy entire build directory, using -aL (archive and follow symlinks)
-          cp -aL ${{ env.WINE64_DIR }}/amd64/. /opt/wine64-native/
-          chmod -R +x /opt/wine64-native/tools/*/
-          chmod -R +r /opt/wine64-native/nls
-          # Verify that copied file is a regular file (not a symlink)
-          if [ ! -f /opt/wine64-native/nls/locale.nls ]; then
-            echo "Warning: locale.nls missing after copy or is an invalid symlink, attempting restore"
-            if [ -d /opt/nls-backup ]; then
-              mkdir -p /opt/wine64-native/nls
-              cp -af /opt/nls-backup/. /opt/wine64-native/nls/
-              echo "Restored nls directory to target"
-            else
-              echo "Error: Cannot restore nls directory"
-              #exit 1
-            fi
-          fi
-          echo "locale.nls exists after copy, size: $(wc -c < /opt/wine64-native/nls/locale.nls) bytes"
-
-      - name: Create SHM Header in Patch Path
-        run: |
-          cd ${{ env.WINE_SOURCE_DIR }}/source
-          mkdir -p android/shm_utils
-          cat <<EOF > android/shm_utils/shm_utils.h
-          #ifndef __WINE_SERVER_SHM_UTILS_H
-          #define __WINE_SERVER_SHM_UTILS_H
-          #ifdef __ANDROID__
-          #include <fcntl.h>
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <unistd.h>
-          #include <sys/stat.h>
-
-          static inline int shm_open(const char *name, int oflag, mode_t mode) {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int fd = open(fname, oflag, mode);
-              free(fname);
-              return fd;
-          }
-
-          static inline int shm_unlink(const char *name) {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int ret = unlink(fname);
-              free(fname);
-              return ret;
-          }
-          #endif
-          #endif
-          EOF
-
-      - name: Create Custom Android SysV SHM Header
-        run: |
-          cd ${{ env.WINE_SOURCE_DIR }}/source
-          mkdir -p android/android_sysvshm/sys
-          
-          cat <<EOF > android/android_sysvshm/sys/shm.h
-          #ifndef _SYS_SHM_H
-          #define _SYS_SHM_H 1
-
-          #include <stdint.h>
-          #include <sys/types.h>
-          #include <sys/ipc.h>
-          #include <fcntl.h>
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <unistd.h>
-          #include <sys/stat.h>
-
-          #ifdef __cplusplus
-          extern "C" {
-          #endif
-
-          /* Mode bits for 'msgget', 'semget', and 'shmget' */
-          #define IPC_CREAT   01000
-          #define IPC_EXCL    02000
-          #define IPC_NOWAIT  04000
-
-          /* Control commands for 'msgctl', 'semctl', and 'shmctl' */
-          #define IPC_RMID    0
-          #define IPC_SET     1
-          #define IPC_STAT    2
-          #define IPC_INFO    3
-
-          /* Special key values */
-          #define IPC_PRIVATE ((key_t) 0)
-
-          /* Permission flag for shmget */
-          #define SHM_R       0400
-          #define SHM_W       0200
-
-          /* Flags for 'shmat' */
-          #define SHM_RDONLY  010000
-          #define SHM_RND     020000
-          #define SHM_REMAP   040000
-          #define SHM_EXEC    0100000
-
-          /* Commands for 'shmctl' */
-          #define SHM_LOCK    11
-          #define SHM_UNLOCK  12
-
-          typedef unsigned long int shmatt_t;
-          typedef long int __long_time_t;
-
-          /* Custom ipc_perm structure to avoid conflict with Android Bionic */
-          struct debian_ipc_perm {
-              key_t __key;
-              __uid_t uid;
-              __gid_t gid;
-              __uid_t cuid;
-              __gid_t cgid;
-              unsigned short int mode;
-              unsigned short int __pad1;
-              unsigned short int __seq;
-              unsigned short int __pad2;
-              unsigned long int __unused1;
-              unsigned long int __unused2;
-          };
-
-          /* Shared memory segment description structure */
-          struct shmid_ds {
-              struct debian_ipc_perm shm_perm;
-              size_t shm_segsz;
-              __long_time_t shm_atime;
-              unsigned long int __unused1;
-              __long_time_t shm_dtime;
-              unsigned long int __unused2;
-              __long_time_t shm_ctime;
-              unsigned long int __unused3;
-              __pid_t shm_cpid;
-              __pid_t shm_lpid;
-              shmatt_t shm_nattch;
-              unsigned long int __unused4;
-              unsigned long int __unused5;
-          };
-
-          /* SysV SHM Functions */
-          extern int shmctl (int __shmid, int __cmd, struct shmid_ds *__buf);
-          extern int shmget (key_t __key, size_t __size, int __shmflg);
-          extern void *shmat (int __shmid, const void *__shmaddr, int __shmflg);
-          extern int shmdt (const void *__shmaddr);
-
-          /* POSIX SHM Inline Utilities for Android */
-          static inline int shm_open(const char *name, int oflag, mode_t mode) {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int fd = open(fname, oflag, mode);
-              free(fname);
-              return fd;
-          }
-
-          static inline int shm_unlink(const char *name) {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int ret = unlink(fname);
-              free(fname);
-              return ret;
-          }
-
-          #ifdef __cplusplus
-          }
-          #endif
-
-          #endif /* sys/shm.h */
-          EOF
-
-      - name: Termux (Apply patches and hacks)
-        run: |
-          set -e
-          cd ${{ env.WINE_SOURCE_DIR }}/source
-          
-          # Basic termux path fixes
-          find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) -exec grep -l "/tmp" {} \; 2>/dev/null | xargs sed -i 's|/tmp/|/data/data/com.termux/files/usr/tmp/|g' 2>/dev/null || true
-          find server -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
+          echo "=============================================="
+          echo "1. Replacing /tmp with Termux tmp directory"
+          echo "=============================================="
+          find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) \
+            -exec grep -l "/tmp" {} \; 2>/dev/null | \
+            xargs sed -i 's|/tmp/|/data/data/com.termux/files/usr/tmp/|g' 2>/dev/null || true
+          find server -type f \( -name "*.c" -o -name "*.h" \) \
+            -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
           find . -name "file.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
           find . -name "loader.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
           find . -name "server.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
+          echo "✔ /tmp paths updated."
 
-          # InterlockedOr fix
+          echo ""
+          echo "=============================================="
+          echo "2. Fix InterlockedOr casting in atiadlxx_main.c"
+          echo "=============================================="
           FILE="dlls/atiadlxx/atiadlxx_main.c"
           if [ -f "$FILE" ]; then
             if grep -q 'InterlockedOr(&dummy, 0)' "$FILE"; then
@@ -426,67 +122,83 @@ jobs:
               sed -i 's|InterlockedOr(&dummy, 0)|_InterlockedOr((long volatile *)\&dummy, 0)|g' "$FILE"
               echo "✔ InterlockedOr patched with explicit casting"
             else
-              echo "✔ InterlockedOr already patched or not found"
+              echo "ℹ InterlockedOr already patched or not found"
             fi
+          else
+            echo "ℹ $FILE not present, skipping"
           fi
 
-          # wdscore stub cleanup
+          echo ""
+          echo "=============================================="
+          echo "3. Clean wdscore.spec stubs"
+          echo "=============================================="
           FILE3="dlls/wdscore/wdscore.spec"
           if [ -f "$FILE3" ]; then
             if grep -q '@ stub' "$FILE3"; then
-              echo "Cleaning wdscore.spec stubs..."
               sed -i '/CDynamicArray/d' "$FILE3"
               echo "✔ wdscore stubs cleaned"
             else
-              echo "✔ wdscore already cleaned or not found"
+              echo "ℹ wdscore already cleaned or not found"
             fi
           fi
 
-          # virtual.c fixes
+          echo ""
+          echo "=============================================="
+          echo "4. Fix virtual.c for Android"
+          echo "=============================================="
           FILE="dlls/ntdll/unix/virtual.c"
           if [ -f "$FILE" ]; then
             if grep -q 'unsigned int vprot, sec_flags;' "$FILE"; then
-              echo "Fixing uninitialized vprot in virtual.c..."
+              echo "   - Initializing uninitialized vprot/sec_flags"
               sed -i 's/unsigned int vprot, sec_flags;/unsigned int vprot = 0, sec_flags = 0;/g' "$FILE"
             fi
             if grep -q '0x7fffffff0000' "$FILE"; then
-              echo "Patching address_space_limit in virtual.c..."
+              echo "   - Lowering address_space_limit to 0x7fffff0000"
               sed -i 's/_limit.*0x7fffffff0000/_limit = (void *)0x7fffff0000/g' "$FILE"
             fi
             if grep -q 'use_kernel_writewatch = 1;' "$FILE"; then
-              echo "Disabling kernel writewatch for Android compatibility..."
+              echo "   - Disabling kernel writewatch (Android incompatible)"
               sed -i 's/use_kernel_writewatch = 1;/use_kernel_writewatch = 0;/g' "$FILE"
             fi
+            echo "✔ virtual.c patched"
           fi
 
-          # loader.c patches
+          echo ""
+          echo "=============================================="
+          echo "5. Patch loader.c (buffer size & ImageBase)"
+          echo "=============================================="
           FILE_LOADER="dlls/ntdll/loader.c"
           if [ -f "$FILE_LOADER" ]; then
-            echo "Applying combined patches to loader.c..."
             if grep -q 'ULONG buffer\[16\];' "$FILE_LOADER"; then
-              echo "  - Increasing loader buffer size to 32"
+              echo "   - Increasing loader buffer size from 16 to 32"
               sed -i 's/ULONG buffer\[16\];/ULONG buffer\[32\];/g' "$FILE_LOADER"
             fi
             if grep -q 'base = (char \*)nt->OptionalHeader.ImageBase;' "$FILE_LOADER"; then
-              echo "  - Patching ImageBase logic for WOW64 (with UINT_PTR cast)"
+              echo "   - Fixing ImageBase logic for WOW64 (UINT_PTR cast)"
               sed -i 's/base = (char \*)nt->OptionalHeader.ImageBase;/if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) base = (char *)((const IMAGE_NT_HEADERS64 *)nt)->OptionalHeader.ImageBase; else base = (char *)(UINT_PTR)((const IMAGE_NT_HEADERS32 *)nt)->OptionalHeader.ImageBase;/g' "$FILE_LOADER"
-            fi                      
-            echo "✔ All loader.c patches applied."
+            fi
+            echo "✔ loader.c patched"
           fi
 
-          # wine.inf libarm64ecfex.dll substitution
+          echo ""
+          echo "=============================================="
+          echo "6. Patch wine.inf for FEX libraries"
+          echo "=============================================="
           INF="loader/wine.inf.in"
           if [ -f "$INF" ] && ! grep -q 'libarm64ecfex.dll' "$INF"; then
-              echo "Patching wine.inf for FEX libraries..."
-              sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' "$INF"
-              sed -i 's/xtajit\.dll/libwow64fex.dll/g' "$INF"    
-              echo "✔ wine.inf integrated patch applied."
+            sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' "$INF"
+            sed -i 's/xtajit\.dll/libwow64fex.dll/g' "$INF"
+            echo "✔ wine.inf patched with FEX library names"
+          else
+            echo "ℹ wine.inf already patched or not found"
           fi
 
-          # Vulkan VRAM faking
+          echo ""
+          echo "=============================================="
+          echo "7. Vulkan VRAM faking (WINE_VRAM_SIZE support)"
+          echo "=============================================="
           FILE="dlls/winevulkan/vulkan.c"
-          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE" ; then
-            echo "Applying VRAM faking to winevulkan..."
+          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
             sed -i '/p_vkGetPhysicalDeviceMemoryProperties(host_physical_device, \&object->memory_properties);/a \
               { \
                   const char *v = getenv("WINE_VRAM_SIZE"); \
@@ -496,191 +208,244 @@ jobs:
                       if (object->memory_properties.memoryHeaps[k].flags \& VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
                           object->memory_properties.memoryHeaps[k].size = s; \
               }' "$FILE"
+            echo "✔ Vulkan VRAM faking added"
           fi
 
-          # Add -lpulse to winepulse.drv
+          echo ""
+          echo "=============================================="
+          echo "8. Add -lpulse to winepulse.drv Makefile"
+          echo "=============================================="
           FILE_PULSE_MK="dlls/winepulse.drv/Makefile.in"
           if [ -f "$FILE_PULSE_MK" ]; then
-            echo "Adding -lpulse to $FILE_PULSE_MK..."
-            sed -i 's/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm -lpulse/' "$FILE_PULSE_MK"
+            if ! grep -q -- '-lpulse' "$FILE_PULSE_MK"; then
+              sed -i 's/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm -lpulse/' "$FILE_PULSE_MK"
+              echo "✔ Added -lpulse"
+            fi
           fi
 
-          # Add -landroid-shmem to winex11.drv
+          echo ""
+          echo "=============================================="
+          echo "9. Add -landroid-shmem to winex11.drv Makefile"
+          echo "=============================================="
           FILE_X11_MK="dlls/winex11.drv/Makefile.in"
           if [ -f "$FILE_X11_MK" ]; then
-            echo "Adding -landroid-shmem to $FILE_X11_MK..."
-            sed -i 's/$(PTHREAD_LIBS) -lm/$(PTHREAD_LIBS) -lm -landroid-shmem/' "$FILE_X11_MK"
+            if ! grep -q -- '-landroid-shmem' "$FILE_X11_MK"; then
+              sed -i 's/$(PTHREAD_LIBS) -lm/$(PTHREAD_LIBS) -lm -landroid-shmem/' "$FILE_X11_MK"
+              echo "✔ Added -landroid-shmem"
+            fi
           fi
 
-          # Replace xtajit strings globally
+          echo ""
+          echo "=============================================="
+          echo "10. Replace xtajit/xtajit64 with FEX library names"
+          echo "=============================================="
           find . -type f \( -name "*.c" -o -name "*.h" \) \
             -exec sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' {} +
           find . -type f \( -name "*.c" -o -name "*.h" \) \
             -exec sed -i 's/xtajit\.dll/libwow64fex.dll/g' {} +
+          echo "✔ FEX library names replaced globally"
+
+          echo ""
+          echo "=============================================="
+          echo "11. Change x86_64-windows to aarch64-windows in ntdll"
+          echo "=============================================="
           find dlls/ntdll -type f \( -name "*.c" -o -name "*.h" \) \
             -exec sed -i 's|x86_64-windows|aarch64-windows|g' {} +
+          echo "✔ Architecture strings updated"
 
-          # ============================================================
-          # ROBUST VULKAN LATENCY PATCH (fixes struct vulkan_device)
-          # ============================================================
-          echo "=== Applying Vulkan latency patch to vulkan_driver.h ==="
+          echo ""
+          echo "=============================================="
+          echo "12. Vulkan latency control patch (NVIDIA + Turnip)"
+          echo "=============================================="
           FILE_VULKAN_H="include/wine/vulkan_driver.h"
-          if [ -f "$FILE_VULKAN_H" ]; then
-            # Backup original
-            cp "$FILE_VULKAN_H" "$FILE_VULKAN_H.bak"
-            
-            # Check if already patched
-            if grep -q "low_latency_enabled" "$FILE_VULKAN_H"; then
-              echo "✔ vulkan_driver.h already contains low_latency_enabled"
-            else
-              echo "🔧 Patching vulkan_driver.h..."
-              
-              # METHOD 1: Insert after keyed_mutexes_enabled (most common)
-              if grep -q "keyed_mutexes_enabled" "$FILE_VULKAN_H"; then
-                sed -i '/keyed_mutexes_enabled;/a \    BOOL low_latency_enabled;\n    BOOL use_standard_latency;' "$FILE_VULKAN_H"
-                echo "  - Added fields after keyed_mutexes_enabled"
-              else
-                # METHOD 2: Insert before closing brace of struct vulkan_device
-                echo "  - keyed_mutexes_enabled not found, inserting before closing brace"
-                # Find the line with "struct vulkan_device" and then find its closing brace
-                awk '/^struct vulkan_device/,/^};/ { if (/^};/) print "    BOOL low_latency_enabled;\n    BOOL use_standard_latency;"; print; next } 1' "$FILE_VULKAN_H" > "$FILE_VULKAN_H.tmp"
-                mv "$FILE_VULKAN_H.tmp" "$FILE_VULKAN_H"
-              fi
-              
-              # Add function pointers after PFN_vkQueuePresentKHR
-              if grep -q "PFN_vkQueuePresentKHR" "$FILE_VULKAN_H"; then
-                sed -i '/PFN_vkQueuePresentKHR/s/$/\n    PFN_vkSetLatencySleepModeNV p_vkSetLatencySleepModeNV;\n    PFN_vkWaitForPresentKHR p_vkWaitForPresentKHR;/' "$FILE_VULKAN_H"
-                echo "  - Added function pointers after PFN_vkQueuePresentKHR"
-              else
-                echo "  ⚠ PFN_vkQueuePresentKHR not found, skipping function pointers"
-              fi
-            fi
-            
-            # Verify patch
-            echo "=== Verification of vulkan_driver.h after patching ==="
-            grep -E "(low_latency|use_standard|keyed_mutexes|PFN_vkQueuePresentKHR)" "$FILE_VULKAN_H" | head -10 || echo "⚠ Verification failed"
-          else
-            echo "❌ $FILE_VULKAN_H not found"
+          if [ -f "$FILE_VULKAN_H" ] && ! grep -q "low_latency_enabled" "$FILE_VULKAN_H"; then
+            sed -i '/keyed_mutexes_enabled;/a \    BOOL low_latency_enabled;\n    BOOL use_standard_latency;' "$FILE_VULKAN_H"
+            sed -i '/PFN_vkQueuePresentKHR p_vkQueuePresentKHR;/a \    PFN_vkSetLatencySleepModeNV p_vkSetLatencySleepModeNV;\n    PFN_vkWaitForPresentKHR p_vkWaitForPresentKHR;' "$FILE_VULKAN_H"
+            echo "✔ vulkan_driver.h patched"
           fi
 
-          # Patch vulkan.c to use the new fields
           FILE_VULKAN_C="dlls/win32u/vulkan.c"
           if [ -f "$FILE_VULKAN_C" ] && ! grep -q "win32u_vkSetLatencySleepModeNV" "$FILE_VULKAN_C"; then
-            echo "🔧 Applying Universal Vulkan Latency patch to vulkan.c..."
-            
-            # Insert function definitions at an appropriate location (before first use)
-            FUNC_DEF='static VkResult win32u_vkSetLatencySleepModeNV(VkDevice device, VkSwapchainKHR swapchain, const VkLatencySleepModeInfoNV *pSleepModeInfo) { VkLatencySleepModeInfoNV host; struct vulkan_device *vk_dev = vulkan_device_from_handle(device); struct swapchain *vk_sw = swapchain_from_handle(swapchain); vk_dev->low_latency_enabled = pSleepModeInfo->lowLatencyMode; vk_dev->use_standard_latency = pSleepModeInfo->lowLatencyMode; host.sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV; host.pNext = NULL; host.lowLatencyMode = pSleepModeInfo->lowLatencyMode; host.lowLatencyBoost = pSleepModeInfo->lowLatencyBoost; host.minimumIntervalUs = pSleepModeInfo->minimumIntervalUs; return vk_dev->p_vkSetLatencySleepModeNV(vk_dev->host.device, vk_sw->obj.host.swapchain, &host); }\n\nstatic void win32u_apply_standard_latency(struct vulkan_device *dev, VkSwapchainKHR sw, uint64_t id) { if (dev->p_vkWaitForPresentKHR) dev->p_vkWaitForPresentKHR(dev->host.device, sw, id, 1000000000); }\n\n#define win32u_vk_find_struct(s, t) win32u_vk_find_struct_((void *)s, VK_STRUCTURE_TYPE_##t)\nstatic void *win32u_vk_find_struct_(void *s, VkStructureType t) { VkBaseOutStructure *h; for (h = s; h; h = h->pNext) { if (h->sType == t) return h; } return NULL; }\n'
-            
-            # Insert before first occurrence of win32u_vkCreateSwapchainKHR
+            FUNC_DEF="static VkResult win32u_vkSetLatencySleepModeNV(VkDevice device, VkSwapchainKHR swapchain, const VkLatencySleepModeInfoNV *pSleepModeInfo) { VkLatencySleepModeInfoNV host; struct vulkan_device *vk_dev = vulkan_device_from_handle(device); struct swapchain *vk_sw = swapchain_from_handle(swapchain); vk_dev->low_latency_enabled = pSleepModeInfo->lowLatencyMode; vk_dev->use_standard_latency = pSleepModeInfo->lowLatencyMode; host.sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV; host.pNext = NULL; host.lowLatencyMode = pSleepModeInfo->lowLatencyMode; host.lowLatencyBoost = pSleepModeInfo->lowLatencyBoost; host.minimumIntervalUs = pSleepModeInfo->minimumIntervalUs; return vk_dev->p_vkSetLatencySleepModeNV(vk_dev->host.device, vk_sw->obj.host.swapchain, &host); }\\n\\nstatic void win32u_apply_standard_latency(struct vulkan_device *dev, VkSwapchainKHR sw, uint64_t id) { if (dev->p_vkWaitForPresentKHR) dev->p_vkWaitForPresentKHR(dev->host.device, sw, id, 1000000000); }\\n\\n#define win32u_vk_find_struct(s, t) win32u_vk_find_struct_((void *)s, VK_STRUCTURE_TYPE_##t)\\nstatic void *win32u_vk_find_struct_(void *s, VkStructureType t) { VkBaseOutStructure *h; for (h = s; h; h = h->pNext) { if (h->sType == t) return h; } return NULL; }\\n"
             sed -i "/static VkResult win32u_vkCreateSwapchainKHR/i $FUNC_DEF" "$FILE_VULKAN_C"
-            
-            # Insert variable declarations in queue submit function
             sed -i '/VkPipelineStageFlags waitStage/a \        VkLatencySubmissionPresentIdNV latencySubmitInfo;\n        VkPresentIdKHR *present_id;' "$FILE_VULKAN_C"
-            
-            # Insert latency logic before vkQueuePresentKHR call
             QUEUE_LOGIC="        if ((present_id = win32u_vk_find_struct(&present_info_host, PRESENT_ID_KHR))) { if (queue->device->low_latency_enabled) { latencySubmitInfo.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV; latencySubmitInfo.pNext = NULL; latencySubmitInfo.presentID = *present_id->pPresentIds; submitInfo.pNext = &latencySubmitInfo; } if (queue->device->use_standard_latency) win32u_apply_standard_latency(queue->device, present_info->pSwapchains[0], *present_id->pPresentIds); }"
             sed -i "/submitInfo.pSignalSemaphores = &blit_sema;/a $QUEUE_LOGIC" "$FILE_VULKAN_C"
-            
-            # Register the function in the dispatch table
-            sed -i '/\.p_get_host_surface_extension = win32u_get_host_surface_extension,/a \    .p_vkSetLatencySleepModeNV = win32u_vkSetLatencySleepModeNV,' "$FILE_VULKAN_C"
-            
-            echo "✔ vulkan.c patched"
+            sed -i '/.p_get_host_surface_extension = win32u_get_host_surface_extension,/a \    .p_vkSetLatencySleepModeNV = win32u_vkSetLatencySleepModeNV,' "$FILE_VULKAN_C"
+            echo "✔ vulkan.c latency logic patched"
           fi
 
-          # ============================================================
-          # Apply external patches (1.patch to 8.patch)
-          # ============================================================
-          export PATCH_BASE="https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/path"
-          PATCH_FILES="1.patch 2.patch 3.patch 4.patch 5.patch 6.patch 7.patch 8.patch"
-          echo "Applying external patches from $PATCH_BASE..."
-          for FILE in $PATCH_FILES; do
-            URL="${PATCH_BASE}/${FILE}"
-            PATCH_FILE="$FILE"           
-            echo "--------------------------------------------"
-            echo "Downloading $PATCH_FILE..."
-            wget -q -O "$PATCH_FILE" "$URL"
-            
-            if git apply --check "$PATCH_FILE" > /dev/null 2>&1; then
-                echo "✔ $PATCH_FILE can be applied cleanly"
-                git apply --whitespace=fix "$PATCH_FILE"
-            elif git apply --3way --check "$PATCH_FILE" > /dev/null 2>&1; then
-                echo "⚠ Applying $PATCH_FILE with 3-way merge"
-                git apply --3way --whitespace=fix "$PATCH_FILE"
-            else
-                echo "❌ $PATCH_FILE failed, generating rejects"
-                git apply --reject --whitespace=fix "$PATCH_FILE" || true
-                find . -name "*.rej"
-            fi
-          done
-          echo "--------------------------------------------"
-          echo "✔ All patch processes completed"
+          echo ""
+          echo "=============================================="
+          echo "All Termux patches applied successfully"
+          echo "=============================================="
 
-          # Regenerate configure if necessary
-          if [ ! -f "configure" ]; then
-            ./autogen.sh || true
-          fi
-
-      - name: ARM64 WOW64 Build
+      # ------------------------------------------------------------
+      # 3. Install host dependencies
+      # ------------------------------------------------------------
+      - name: Install host dependencies
         run: |
-          cd ${{ env.WINE_SOURCE_DIR }}/source
-          mkdir -p build-arm64
-          cd build-arm64
+          sudo dpkg --add-architecture i386
+          sudo apt update
+          sudo apt install -y \
+            build-essential gcc-multilib g++-multilib \
+            flex bison unzip pkg-config gettext \
+            binutils-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            libxml-libxml-perl libssl-dev \
+            libfreetype-dev libpulse-dev libsdl2-dev libfreetype-dev:i386 libfontconfig-dev:i386 \
+            libdbus-1-dev libfontconfig-dev \
+            libgnutls28-dev libopenal-dev \
+            libasound2-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer1.0-dev libglib2.0-dev
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
 
-          export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
-          export deps="$HOME/termuxfs/aarch64/data/data/com.termux/files/usr"
-          export RUNTIME_PATH="/data/data/com.termux/files/usr"
-          export TOOLCHAIN="$HOME/Android/Sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export TARGET=aarch64-linux-android28
-          export CC=$TOOLCHAIN/$TARGET-clang
-          export CXX=$TOOLCHAIN/$TARGET-clang++      
-          
-          export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
-          export ACLOCAL_PATH=$deps/lib/aclocal:$deps/share/aclocal
-          export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
-          
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
+      - name: Setup LLVM MinGW (with ARM64EC support)
+        run: |
+          sudo mkdir -p /opt
+          cd /opt
+          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVMMINGW_DATE}/${LLVMMINGW_NAME}.tar.xz"
+          echo "Downloading: $URL"
+          sudo wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 "$URL" -O llvm-mingw.tar.xz
+          [ -f llvm-mingw.tar.xz ] || { echo "❌ Download failed"; exit 1; }
+          sudo tar -xJf llvm-mingw.tar.xz
+          sudo rm llvm-mingw.tar.xz
+          echo "/opt/${LLVMMINGW_NAME}/bin" >> $GITHUB_PATH
+          # Verify ARM64EC compiler exists
+          if [ ! -x "/opt/${LLVMMINGW_NAME}/bin/arm64ec-w64-mingw32-clang" ]; then
+            echo "❌ ARM64EC compiler not found in LLVM MinGW package!"
+            ls -la "/opt/${LLVMMINGW_NAME}/bin/" | grep -i arm
+            exit 1
+          fi
+          /opt/${LLVMMINGW_NAME}/bin/arm64ec-w64-mingw32-clang --version
 
-          export CFLAGS="-O2 -pipe"
-          export CXXFLAGS="-O2 -pipe"
-          export CROSSCFLAGS="-O2 -pipe"
-          export CROSSCXXFLAGS="-O2 -pipe"
-          
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Setup Termux sysroot
+        run: |
+          mkdir termux && cd termux
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/wine-14/termux-rootfs.tar
+          tar xf termux-rootfs.tar
+          sudo mv data /data
+          sudo chown -R $(whoami):$(whoami) /data
+          mkdir -p /data/data/com.termux/files/usr/tmp
+          # Make all headers and libs readable
+          sudo chmod -R a+rX /data/data/com.termux/files/usr
+
+      - name: Install libandroid-shmem and libandroid-spawn (shared + static)
+        run: |
+          cd /tmp
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn_0.3_aarch64.deb
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem-static_0.7_aarch64.deb
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn-static_0.3_aarch64.deb
+
+          for deb in *.deb; do
+            ar x "$deb"
+            sudo tar -xf data.tar.* -C / \
+              --no-overwrite-dir \
+              --no-same-owner \
+              --no-same-permissions
+            rm -f data.tar.* debian-binary control.tar.*
+          done
+
+          # Fix library permissions
+          sudo chmod -R 755 /data/data/com.termux/files/usr/lib
+          sudo chmod -R 755 /data/data/com.termux/files/usr/include
+          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.so 2>/dev/null || true
+          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.a 2>/dev/null || true
+
+          echo "Checking for static libraries:"
+          ls -l /data/data/com.termux/files/usr/lib/libandroid-shmem.a
+          ls -l /data/data/com.termux/files/usr/lib/libandroid-spawn.a
+
+      - name: Build Wine tools (host)
+        run: |
+          cd source
+          export PATH="/opt/${LLVMMINGW_NAME}/bin:$PATH"
+          if [ ! -f ./configure ]; then
+            ./autogen.sh
+          fi
+          mkdir wine-tools-build
+          cd wine-tools-build
+          ../configure --without-x --without-vulkan --without-gstreamer
+          make -j$(nproc) __tooldeps__ nls/all
+          cd ..
+          mv wine-tools-build wine-tools
+
+      - name: Build Wine (ARM64EC + aarch64 + i386)
+        run: |
+          cd source
+          export WORKDIR="$GITHUB_WORKSPACE"
+          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export LLVM_MINGW_TOOLCHAIN="/opt/${LLVMMINGW_NAME}/bin"
+          export deps="/data/data/com.termux/files/usr"
+          export SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          export SDKVER="28"
+          export TARGET="aarch64-linux-android"
+          export install_prefix="$WORKDIR/wine-build"
+          export winetools_dir="./wine-tools"
+
+          # Android Unix compiler (NDK)
+          export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
+          export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
+          export AS="$CC"
+          export AR="$TOOLCHAIN/llvm-ar"
+          export LD="$TOOLCHAIN/ld"
+          export RANLIB="$TOOLCHAIN/llvm-ranlib"
+          export STRIP="$TOOLCHAIN/llvm-strip"
+
+          # PE compiler (ARM64EC toolchain in PATH)
+          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
+          export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
+
+          # pkg-config
+          export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
+          export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
+
+          # Compiler flags
+          export CPPFLAGS="-I$deps/include --sysroot=$SYSROOT"
+          export CFLAGS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+          export LIBRARY_PATH="$deps/lib"
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"
+
+          # Environment hints
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
           export SDL2_CFLAGS="-I$deps/include/SDL2"
           export SDL2_LIBS="-L$deps/lib -lSDL2"
-          export X_CFLAGS="-I$deps/include"
-          export X_LIBS="-L$deps/lib -landroid-shmem"
-          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include -I$deps/glib-2.0/include -I$deps/lib/gstreamer-1.0/include"
+          export GSTREAMER_CFLAGS="-I$deps/include/gstreamer-1.0 -I$deps/include/glib-2.0 -I$deps/lib/glib-2.0/include"
           export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
-          export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
-          export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
-          export WINE_NLS_DIR=/opt/wine64-native/nls
+          echo "=== Android (Unix) compiler ==="
+          $CC --version
+          echo "=== ARM64EC Mingw (PE) compiler ==="
+          arm64ec-w64-mingw32-clang --version
 
-          echo "Using Wine64 build directory (as tools directory): /opt/wine64-native"
-          echo "WINE_NLS_DIR=$WINE_NLS_DIR"
+          # Quick linker test
+          echo 'int main(){return 0;}' > test.c
+          $CC test.c -o test $CFLAGS $LDFLAGS || { echo "❌ Unix compiler test failed!"; exit 1; }
+          echo "✅ Unix compiler test passed."
 
-          ../configure \
-            --host=$TARGET \
-            --prefix=/tmp/wine-install-wow64 \
-            --with-mingw=clang \
-            --enable-archs=aarch64,i386 \
-            --with-wine-tools=/opt/wine64-native \
-            --enable-wineandroid_drv=no \
-            --enable-win64 \
+          ./configure \
+            --enable-archs=arm64ec,aarch64,i386 \
+            --prefix="$install_prefix" \
+            --host=aarch64-linux-android \
             --disable-win16 \
-            --disable-tests \
-            --with-vulkan \
-            --with-gstreamer \
-            --enable-nls \
-            --without-pulse \
-            --without-ffmpeg \
-            --disable-winemenubuilder \
             --disable-amd_ags_x64 \
-            --without-osmesa \
+            --with-mingw=clang \
+            --with-wine-tools="$winetools_dir" \
+            --enable-win64 \
+            --enable-nls \
+            --with-pulse \
+            --with-alsa \
             --disable-opencl \
+            --disable-tests \
             --without-capi \
             --without-coreaudio \
             --without-cups \
@@ -688,131 +453,68 @@ jobs:
             --without-gphoto \
             --without-gssapi \
             --without-krb5 \
-            --without-alsa \
             --without-netapi \
             --without-oss \
             --without-pcap \
             --without-pcsclite \
             --without-sane \
             --without-udev \
+            --without-unwind \
             --without-usb \
             --without-v4l2 \
+            --with-vulkan \
+            --with-xcomposite \
+            --with-xcursor \
+            --without-osmesa \
+            --with-sdl \
+            --without-gettext \
+            --with-gettextpo=no \
+            --with-xfixes \
             --without-wayland \
+            --with-xinput \
+            --with-xinput2 \
+            --with-pthread \
+            --without-xshape \
+            --without-xshm \
             --without-xinerama \
-            --with-xshm \
-            --without-xxf86vm
-            
-          make -j$(nproc) > build.log 2>&1 || (tail -n 100 build.log && exit 1)
-          mkdir -p /tmp/wine-install-wow64
-          make install
+            --without-xxf86vm \
+            --enable-wineandroid_drv=no
 
-          echo "Installed file list:"
-          find /tmp/wine-install-wow64 -maxdepth 2
+          make -j$(nproc)
+          make install -j$(nproc)
 
-      - name: Shared Library Path Fix
+          ls -la "$install_prefix/"
+
+      - name: Strip binaries and clean up
         run: |
-          set -e
-          TARGET_PREFIX="/tmp/wine-install-wow64"
-          BUILD_DIR="${{ env.WINE_SOURCE_DIR }}/source/build-arm64"
-          SOURCE_DIR="${{ env.WINE64_DIR }}/source"
-          NATIVE_NLS_DIR="/opt/wine64-native/nls"
-          
-          WINE_ARCH="aarch64"
+          cd wine-build
+          rm -rf share/man share/doc
+          cd ..
 
-          echo "=== 1. Create structure and collect all libraries ==="
-          mkdir -p "$TARGET_PREFIX/share/wine/nls"
-          mkdir -p "$TARGET_PREFIX/share/wine/fonts"
-
-          find "$BUILD_DIR" -name "ntdll.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
-          find "$BUILD_DIR/dlls" -name "*.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
-          find "$BUILD_DIR/programs" -name "*.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
-
-          if [ -d "$BUILD_DIR/dlls/ntdll/aarch64-windows" ]; then
-              echo "✔ aarch64-windows detected. Cleaning x86_64-unix remnants."
-              rm -rf "$TARGET_PREFIX/lib/wine/x86_64-unix"
-          fi
-
-          echo "=== 2. Copy resources (NLS, Fonts) ==="
-          [ -d "$NATIVE_NLS_DIR" ] && cp -v "$NATIVE_NLS_DIR"/*.nls "$TARGET_PREFIX/share/wine/nls/" 2>/dev/null || true
-          [ -d "$SOURCE_DIR/fonts" ] && cp -v "$SOURCE_DIR/fonts"/*.ttf "$SOURCE_DIR/fonts"/*.fon "$TARGET_PREFIX/share/wine/fonts/" 2>/dev/null || true
-
-          echo "=== 3. Copy loader and executables ==="
-          PROGRAMS="wine wineserver wineboot winecfg regedit"
-          for prog in $PROGRAMS; do
-              found=$(find "$BUILD_DIR" -type f -name "$prog" -executable | head -1)
-              [ -n "$found" ] && cp -vL "$found" "$TARGET_PREFIX/arm64-v8a/bin/" || echo "⚠ $prog not found"
-          done
-
-          echo "=== 4. Recreate symlinks ==="
-          if [ -f "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/ntdll.so" ]; then
-              cd "$TARGET_PREFIX/arm64-v8a/bin"
-              ln -sf "../lib/wine/$WINE_ARCH-unix/ntdll.so" "ntdll.so"
-              echo "✔ ntdll.so symlink created"
-          else
-              echo "❌ Fatal error: ntdll.so original file missing!"
-              exit 1
-          fi
-          if [ -f "wine" ]; then
-              cp -r wine wine64
-          fi
-          echo "=== Final verification ==="
-          ls -l "$TARGET_PREFIX/arm64-v8a/bin/ntdll.so"
-          ls -L "$TARGET_PREFIX/arm64-v8a/bin/ntdll.so" || { echo "❌ Broken link!"; exit 1; }
-
-      - name: Verify installation directory contents
+      - name: Package Wine
         run: |
-          echo "Contents of installation directory /tmp/wine-install-wow64:"
-          ls -la /tmp/wine-install-wow64/
-          if [ -d /tmp/wine-install-wow64/bin ]; then
-            echo "bin directory contents:"
-            ls -la /tmp/wine-install-wow64/bin/
-          fi
-          if [ -d /tmp/wine-install-wow64/share ]; then
-            echo "share directory contents:"
-            ls -la /tmp/wine-install-wow64/share/
-          fi
+          cd wine-build
+          tar -cJf ../wine-termux-arm64ec.tar.xz .
+          cd ..
 
-      - name: Prepare packaging
-        run: |
-          mkdir -p wine-package/wine 
-          cp -r /tmp/wine-install-wow64/* wine-package/wine/
-
-      - name: Create package file
-        run: |
-          tar -cJf ${{ env.BUILD_NAME }}.tar.xz -C wine-package wine
-          ls -lh *.tar.xz
-
-      - name: Generate checksums
-        run: |
-          sha256sum *.tar.xz > checksums.txt
-          cat checksums.txt
-
-      - name: Upload Wine WoW64 artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Wine-${{ github.event.inputs.wine_branch || 'staging' }}-${{ github.event.inputs.wine_version || 'latest' }}-ARM64
-          path: |
-            *.tar.xz
-            checksums.txt
-          retention-days: 30
+          name: wine-${{ env.WINE_SOURCE_NAME }}-${{ env.COMMIT_HASH }}
+          path: wine-termux-arm64ec.tar.xz
 
-      - name: Publish Wine to GitHub Release
-        uses: softprops/action-gh-release@v1
-        if: github.event_name == 'workflow_dispatch'
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: wine-${{ github.event.inputs.wine_branch || 'staging' }}-${{ github.event.inputs.wine_version || 'latest' }}-arm64
-          name: Wine ${{ github.event.inputs.wine_branch || 'staging' }} ${{ github.event.inputs.wine_version || 'latest' }} (ARM64 WOW64 for Termux)
+          tag_name: wine-${{ env.WINE_SOURCE_NAME }}-${{ env.COMMIT_HASH }}-${{ github.run_id }}
+          name: Wine ${{ env.WINE_SOURCE_NAME }} (${{ env.COMMIT_HASH }}) for Termux (ARM64EC + aarch64 + i386)
           body: |
-            - **Wine Branch**: ${{ github.event.inputs.wine_branch || 'staging' }}
-            - **Wine Version**: ${{ github.event.inputs.wine_version || 'latest' }}
-            - **Host Architecture**: ARM64
-            - **Target Windows Architectures**: i386, aarch64, arm64ec (via WOW64 emulation)
-
-            - Build Time: ${{ github.event.head_commit.timestamp }}
-            - Commit: ${{ github.sha }}
-            - Workflow: ${{ github.workflow }}
-          files: |
-            ${{ github.workspace }}/${{ env.BUILD_NAME }}.tar.xz
-            ${{ github.workspace }}/checksums.txt
+            **Wine hybrid WoW64 with ARM64EC support for Termux**
+            - Source: ${{ env.WINE_SOURCE_NAME }}
+            - Commit: ${{ env.COMMIT_HASH }}
+            - Patches applied: ${{ github.event.inputs.enable_patches != 'false' }}
+            - LLVM MinGW 20251202 (includes ARM64EC toolchain)
+            - Extract to `/data/data/com.termux/files/usr`
+          files: wine-termux-arm64ec.tar.xz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
