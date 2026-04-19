@@ -618,7 +618,8 @@ jobs:
             --with-vulkan \
             --without-xshm \
             --with-xinput --with-xinput2 \
-            --disable-amd_ags \
+            --disable-amd_ags_x64 \
+            --without-amd_ags_x64 \
             --enable-wineandroid_drv=no
 
           # === Build and install ===
