@@ -543,6 +543,7 @@ jobs:
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
+          fi
 
       - name: Build Wine (ARM64EC + aarch64 + i386)
         run: |
