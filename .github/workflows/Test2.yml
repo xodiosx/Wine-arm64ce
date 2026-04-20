@@ -434,7 +434,9 @@ jobs:
 
           #endif /* _SYS_SHM_H */
           EOF
-
+          # Fix incorrect include path in bitblt.c
+          sed -i 's|#include "../android/shm_utils/shm_utils.h"|#include "../../android/shm_utils/shm_utils.h"|' \
+          dlls/winex11.drv/bitblt.c
           echo "✅ Android SHM headers created"
 
       # ------------------------------------------------------------
