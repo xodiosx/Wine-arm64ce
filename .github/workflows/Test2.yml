@@ -64,7 +64,7 @@ jobs:
               ;;
             hangover)
               REPO="https://github.com/AndreRH/hangover.git"
-              BRANCH="master"
+              BRANCH="arm64ec"
               ;;
             longjunyu2-custom-9.16)
               REPO="https://github.com/longjunyu2/wine-custom.git"
@@ -313,6 +313,7 @@ jobs:
       # 3. Create Android SHM headers (required for esync/ntdll)
       # ------------------------------------------------------------
       - name: Create Android SHM headers
+        if: ${{ github.event.inputs.enable_patches != 'false' }}       
         run: |
           cd source
 
