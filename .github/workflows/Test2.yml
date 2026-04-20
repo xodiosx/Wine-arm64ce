@@ -544,6 +544,7 @@ jobs:
           cd ..
           mv wine-tools-build wine-tools
           export winetools_dir="./wine-tools"
+          echo "export winetools_dir=./wine-tools">> $GITHUB_ENV
           fi
 
       - name: Build Wine (ARM64EC + aarch64 + i386)
