@@ -78,11 +78,12 @@ jobs:
 
           git clone -b "$BRANCH" "$REPO" source
           cd source
+          git submodule update --init --recursive
           if [ -d wine ]; then
-            git submodule update --init --recursive
-            shopt -s dotglob nullglob
+            
+            #shopt -s dotglob nullglob
             mv -f wine/* ../
-            shopt -u dotglob nullglob
+            #shopt -u dotglob nullglob
           fi
 
           if [ -n "$WINE_VERSION" ]; then
