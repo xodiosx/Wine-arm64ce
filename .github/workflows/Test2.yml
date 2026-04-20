@@ -310,6 +310,7 @@ jobs:
               #git apply --reject --whitespace=fix "${i}.patch" || true
             fi
           done
+
           echo "Patching dlls/ntdll/unix/fsync.c for Android shm_open fallback..."
            FSYNC_FILE="dlls/ntdll/unix/fsync.c"
           if [ -f "$FSYNC_FILE" ] && ! grep -q 'android/shm_utils/shm_utils.h' "$FSYNC_FILE"; then
