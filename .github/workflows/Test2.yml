@@ -637,6 +637,7 @@ jobs:
             --without-xinerama \
             --without-xxf86vm \
             --with-vulkan \
+            --with-vkd3d \
             --without-xshm \
             --with-xinput --with-xinput2 \
             --disable-amd_ags_x64 \
