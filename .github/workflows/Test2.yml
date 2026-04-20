@@ -543,6 +543,7 @@ jobs:
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
+          export winetools_dir="./wine-tools"
           fi
 
       - name: Build Wine (ARM64EC + aarch64 + i386)
@@ -556,7 +557,7 @@ jobs:
           export SDKVER="28"
           export TARGET="aarch64-linux-android"
           export install_prefix="$WORKDIR/wine-build"
-          export winetools_dir="./wine-tools"
+          
 
           # Android Unix compiler (NDK)
           export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
@@ -574,8 +575,8 @@ jobs:
           # Environment variables
           #export FREETYPE_CFLAGS="-I $deps/include/freetype2"
           #export FREETYPE_LIBS="-L $deps/lib"
-          export GSTREAMER_CFLAGS="-I $deps/include/gstreamer-1.0"
-          export GSTREAMER_LIBS="-L $deps/lib"
+          #export GSTREAMER_CFLAGS="-I $deps/include/gstreamer-1.0"
+          #export GSTREAMER_LIBS="-L $deps/lib"
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
           export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
@@ -625,7 +626,7 @@ jobs:
             --without-pcsclite \
             --without-sane \
             --without-udev \
-            --with-gstreamer \
+            --without-gstreamer \
             --without-unwind \
             --without-usb \
             --without-v4l2 \
