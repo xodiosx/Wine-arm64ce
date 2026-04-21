@@ -319,6 +319,12 @@ jobs:
            sed -i '/^#include "unix_private.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$FSYNC_FILE"
            echo "✔ fsync.c patched"
            fi
+            echo "Patching dlls/ntdll/unix/esync.c for Android shm_open fallback..."
+            ESYNC_FILE="dlls/ntdll/unix/esync.c"
+            if [ -f "$ESYNC_FILE" ] && ! grep -q 'android/shm_utils/shm_utils.h' "$ESYNC_FILE"; then
+            sed -i '/^#include "unix_private.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$ESYNC_FILE"
+            echo "✔ esync.c patched"
+            fi
 
           echo ""
           echo "=============================================="
