@@ -310,9 +310,7 @@ jobs:
               #git apply --reject --whitespace=fix "${i}.patch" || true
             fi
           done
-          # Fix incorrect include path in bitblt.c
-          #ln -sf ../android dlls/android
-         
+          
 
           echo "Patching dlls/ntdll/unix/fsync.c for Android shm_open fallback..."
            FSYNC_FILE="dlls/ntdll/unix/fsync.c"
@@ -334,6 +332,7 @@ jobs:
         if: ${{ github.event.inputs.enable_patches != 'false' }}       
         run: |
           cd source
+          ls
 
           # Create shm_utils.h (used by esync.c)
           mkdir -p android/shm_utils
@@ -454,7 +453,8 @@ jobs:
           #endif /* _SYS_SHM_H */
           EOF
           # Fix incorrect include path in bitblt.c
-          ln -sf ../android dlls/android
+          ln -sf android/shm_utils/shm_utils.h dlls/android/shm_utils/shm_utils.h
+           ls -a dlls/android/shm_utils/
           echo "✅ Android SHM headers created"
 
       # ------------------------------------------------------------
@@ -605,8 +605,8 @@ jobs:
           #export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgstaudio-1.0 -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0"
           export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
           export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
-          export CPPFLAGS="-I. -I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          export CFLAGS="-O2 -pipe -D__aarch64__ -D__ANDROID__ -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+          #export CPPFLAGS="-I. -I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          #export CFLAGS="-O2 -pipe -D__aarch64__ -D__ANDROID__ -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
 
 
           # === Configure with corrected flags ===
