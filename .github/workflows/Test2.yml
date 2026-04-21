@@ -296,7 +296,7 @@ jobs:
           # Apply external Proton Android patches (1.patch to 8.patch)
           # ============================================================
           PATCH_BASE="https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/path"
-          for i in  2  ; do
+          for i in 1 2 8 ; do
             echo "Downloading and applying ${i}.patch ..."
             wget -q -O "${i}.patch" "${PATCH_BASE}/${i}.patch"
             if git apply --check "${i}.patch" 2>/dev/null; then
@@ -311,7 +311,7 @@ jobs:
             fi
           done
           # Fix incorrect include path in bitblt.c
-          $ln -sf ../android dlls/android
+          #ln -sf ../android dlls/android
          
 
           echo "Patching dlls/ntdll/unix/fsync.c for Android shm_open fallback..."
