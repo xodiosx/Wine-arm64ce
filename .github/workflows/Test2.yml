@@ -453,8 +453,10 @@ jobs:
           #endif /* _SYS_SHM_H */
           EOF
           # Fix incorrect include path in bitblt.c
-          ln -sf android/shm_utils/shm_utils.h dlls/android/shm_utils/shm_utils.h
-           ls -a dlls/android/shm_utils/
+          mkdir -p dlls/ntdll/unix/android/shm_utils
+          ln -sf ../../../../../android/shm_utils/shm_utils.h dlls/ntdll/unix/android/shm_utils/shm_utils.h
+          ln -sf ../android dlls/android
+          ls -a dlls/android/shm_utils/
           echo "✅ Android SHM headers created"
 
       # ------------------------------------------------------------
