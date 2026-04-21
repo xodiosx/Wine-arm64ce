@@ -610,7 +610,7 @@ jobs:
 
           # === Configure with corrected flags ===
           ./configure \
-            --enable-archs=aarch64,i386 \
+            --enable-archs=arm64ec,aarch64,i386 \
             --prefix=${install_prefix} \
             --host=${TARGET}${SDKVER} \
             --with-mingw=clang \
