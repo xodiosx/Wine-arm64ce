@@ -310,6 +310,9 @@ jobs:
               #git apply --reject --whitespace=fix "${i}.patch" || true
             fi
           done
+          # Fix incorrect include path in bitblt.c
+          ln -sf ../android dlls/android
+         
 
           echo "Patching dlls/ntdll/unix/fsync.c for Android shm_open fallback..."
            FSYNC_FILE="dlls/ntdll/unix/fsync.c"
@@ -451,10 +454,7 @@ jobs:
           #endif /* _SYS_SHM_H */
           EOF
           # Fix incorrect include path in bitblt.c
-          #sed -i 's|#include "../android/shm_utils/shm_utils.h"|#include "../../android/shm_utils/shm_utils.h"|' \
-          #dlls/winex11.drv/bitblt.c
-          # Create symlink so includes like #include "../android/shm_utils/shm_utils.h" resolve correctly
-          ln -sf ../android dlls/android
+          #ln -sf ../android dlls/android
           echo "✅ Android SHM headers created"
 
       # ------------------------------------------------------------
