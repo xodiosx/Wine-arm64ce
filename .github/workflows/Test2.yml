@@ -478,8 +478,7 @@ jobs:
           ##For dlls/ntdll/unix/ (esync.c, fsync.c)
           
           mkdir -p server/android/shm_utils
-          ln -sf ../../android/shm_utils/shm_utils.h server/android/shm_utils/shm_utils.h
-          ln -sf ../android dlls/android
+          ln -sf ../../../android/shm_utils/shm_utils.h server/android/shm_utils/shm_utils.h
           echo "✅ Android SHM headers created"
 
       # ------------------------------------------------------------
