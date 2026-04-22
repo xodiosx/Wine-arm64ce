@@ -325,6 +325,20 @@ jobs:
             sed -i '/^#include "unix_private.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$ESYNC_FILE"
             echo "✔ esync.c patched"
             fi
+             echo "Patching server/esync.c for Android shm_open fallback..."
+              SERVER_ESYNC_FILE="server/esync.c"
+               if [ -f "$SERVER_ESYNC_FILE" ] && ! grep -q 'android/shm_utils/shm_utils.h' "$SERVER_ESYNC_FILE"; then
+                # Insert after the first #include line (or a known safe anchor like #include "config.h")
+                 sed -i '/^#include "config.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$SERVER_ESYNC_FILE"
+             echo "✔ server/esync.c patched"
+                fi
+             echo "Patching server/fsync.c for Android shm_open fallback..."
+                   SERVER_FSYNC_FILE="server/fsync.c"
+                 if [ -f "$SERVER_FSYNC_FILE" ] && ! grep -q 'android/shm_utils/shm_utils.h' "$SERVER_FSYNC_FILE"; then
+                   # Insert after the first #include line (or a known safe anchor like #include "config.h")
+                 sed -i '/^#include "config.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$SERVER_FSYNC_FILE"
+             echo "✔ server/fsync.c patched"
+                 fi
 
           echo ""
           echo "=============================================="
@@ -460,9 +474,12 @@ jobs:
           EOF
           # Fix incorrect include path in bitblt.c
           mkdir -p dlls/ntdll/unix/android/shm_utils
-          ln -sf ../../../../../android/shm_utils/shm_utils.h dlls/ntdll/unix/android/shm_utils/shm_utils.h
+          $ln -sf ../../../../../android/shm_utils/shm_utils.h dlls/ntdll/unix/android/shm_utils/shm_utils.h          
+          # For dlls/ntdll/unix/ (esync.c, fsync.c)
+          mkdir -p dlls/ntdll/unix
+          ln -sf ../../../../android dlls/ntdll/unix/android
+          ln -sf ../android server/android
           ln -sf ../android dlls/android
-          ls -a dlls/android/shm_utils/
           echo "✅ Android SHM headers created"
 
       # ------------------------------------------------------------
