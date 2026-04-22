@@ -474,11 +474,11 @@ jobs:
           EOF
           # Fix incorrect include path in bitblt.c
           mkdir -p dlls/ntdll/unix/android/shm_utils
-          #ln -sf ../../../../../android/shm_utils/shm_utils.h dlls/ntdll/unix/android/shm_utils/shm_utils.h          
+          ln -sf ../../../../../android/shm_utils/shm_utils.h dlls/ntdll/unix/android/shm_utils/shm_utils.h          
           ##For dlls/ntdll/unix/ (esync.c, fsync.c)
           mkdir -p dlls/ntdll/unix
-          ln -sf ../../../../android dlls/ntdll/unix/android
-          ln -sf ../android server/android
+          #ln -sf ../../../../android dlls/ntdll/unix/android
+          ln -sf ../android/shm_utils/shm_utils.h server/android/shm_utils/shm_utils.h
           ln -sf ../android dlls/android
           echo "✅ Android SHM headers created"
 
