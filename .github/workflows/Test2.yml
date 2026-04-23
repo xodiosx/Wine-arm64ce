@@ -196,6 +196,20 @@ jobs:
             fi
             echo "✔ loader.c patched"
           fi
+         
+          echo ""
+          echo "=============================================="
+          echo "5b. Remove mallopt(M_PERTURB) calls (unsupported on Android)"
+          echo "=============================================="
+          FILE_LOADER="dlls/ntdll/unix/loader.c"
+          if [ -f "$FILE_LOADER" ]; then
+          # Comment out the two mallopt(M_PERTURB, ...) lines
+          sed -i 's/^\(\s*\)mallopt( M_PERTURB, 0xff );/\1\/\/ mallopt( M_PERTURB, 0xff ); \/\/ not supported on Android/g' "$FILE_LOADER"
+          sed -i 's/^\(\s*\)mallopt( M_PERTURB, 0 );/\1\/\/ mallopt( M_PERTURB, 0 ); \/\/ not supported on Android/g' "$FILE_LOADER"
+          echo "✔ mallopt(M_PERTURB) calls disabled"
+          fi
+
+
 
           echo ""
           echo "=============================================="
