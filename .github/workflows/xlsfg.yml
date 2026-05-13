@@ -1,0 +1,83 @@
+name: Build lsfg-vk ARM64 (Bionic for Termux)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout lsfg-vk repository
+        uses: actions/checkout@v4
+        with:
+          repository: PancakeTAS/lsfg-vk
+          fetch-depth: 0
+          ref: ff1a0f72a7d6d08b84d58b7b4dc5f05c9f904f98
+
+      # ------------------------------------------------------------
+      # 1. Install only the host tools needed (no cross‑compiler for glibc)
+      # ------------------------------------------------------------
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build pkg-config git
+
+      # ------------------------------------------------------------
+      # 2. Setup Android NDK (r27c) – same as your Wine workflow
+      # ------------------------------------------------------------
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      # ------------------------------------------------------------
+      # 3. Optionally update Vulkan headers if needed
+      #    (The NDK already includes Vulkan headers, but if the project
+      #    demands a newer SDK you can override – normally not required)
+      # ------------------------------------------------------------
+      #- name: Update Vulkan headers (optional)
+      #  run: |
+      #    git clone -b vulkan-sdk-1.4.328 https://github.com/KhronosGroup/Vulkan-Headers /tmp/vkh
+      #    sudo rm -rf /usr/include/{vulkan,vk_video}
+      #    sudo mv /tmp/vkh/include/{vulkan,vk_video} /usr/include/
+      #    rm -rf /tmp/vkh
+
+      # ------------------------------------------------------------
+      # 4. Configure CMake for aarch64 Android using NDK toolchain file
+      # ------------------------------------------------------------
+      - name: Configure lsfg-vk (bionic)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-28 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=./target \
+            -DLSFGVK_BUILD_VK_LAYER=ON \
+            -DLSFGVK_BUILD_UI=OFF \
+            -DLSFGVK_BUILD_CLI=OFF \
+            -DLSFGVK_LAYER_LIBRARY_PATH="/data/data/com.termux/files/usr/lib/liblsfg-vk-layer.so"
+
+      # ------------------------------------------------------------
+      # 5. Build and install
+      # ------------------------------------------------------------
+      - name: Build with Ninja
+        run: ninja -C build
+
+      - name: Install with CMake
+        run: cmake --install build
+
+      # ------------------------------------------------------------
+      # 6. Verify & package
+      # ------------------------------------------------------------
+      - name: Check binary
+        run: |
+          file target/lib/liblsfg-vk-layer.so
+          # Should report: ELF 64-bit LSB shared object, ARM aarch64, for Android 28, …
+
+      - name: Upload lsfg-vk artifact (bionic)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsfg-vk-bionic-arm64
+          path: target/*
