@@ -226,7 +226,6 @@ jobs:
         run: |
           cd ${{ env.WINE_SOURCE_DIR }}/source
           
-          # Patch Paths
           find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) -exec sed -i 's|/tmp|/data/data/com.termux/files/usr/tmp|g' {} + 2>/dev/null || true
           
           FILE_LOADER="dlls/ntdll/unix/loader.c"
@@ -251,7 +250,6 @@ jobs:
             sed -i '/static void kernel_writewatch_init(void)/{n;s/^{/{\n    return;/}' "$FILE_VIRTUAL"
           fi
 
-          # PulseAudio Injection
           FILE_PULSE_MK="dlls/winepulse.drv/Makefile.in"
           if [ -f "$FILE_PULSE_MK" ]; then
             sed -i 's/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm -lpulse/' "$FILE_PULSE_MK"
@@ -278,7 +276,6 @@ jobs:
 
           export HOST_WAYLAND_SCANNER=$(which wayland-scanner)
 
-                    # Wayland Stubs & Cache Overrides
           cat > "$deps/lib/pkgconfig/wayland-client.pc" << EOF
           prefix=$deps
           exec_prefix=\${prefix}
@@ -287,7 +284,6 @@ jobs:
           Name: wayland-client
           Description: Wayland client bionic lib
           Version: 1.22.0
-          # Explicitly add dependencies required for Android linker checks
           Libs: -L\${libdir} -lwayland-client -lffi -landroid-sysvshm
           Cflags: -I\${includedir}
           EOF
@@ -304,6 +300,7 @@ jobs:
           Cflags: -I\${includedir}
           EOF
 
+          export ac_cv_lib_wayland_client_wl_display_connect=yes
           export ac_cv_lib_wayland_server_wl_display_init_shm=yes
           export ac_cv_lib_wayland_egl_wl_egl_window_create=yes
           export ac_cv_lib_xkbcommon_xkb_context_new=yes
@@ -320,15 +317,12 @@ jobs:
           export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
           export WAYLAND_SCANNER="$(which wayland-scanner)"
 
-          # CORRECTED: Replaced undefined $BIONIC_LIBS with $deps
           export WAYLAND_CLIENT_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
           export WAYLAND_CLIENT_LIBS="-L$deps/lib -lwayland-client -lffi -landroid-sysvshm"
           export WAYLAND_SERVER_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
           export WAYLAND_SERVER_LIBS="-L$deps/lib -lwayland-server -lffi -landroid-sysvshm"
           
           export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
-          
-          # Force LDFLAGS to include shared memory and FFI for standard AC_CHECK_LIB tests
           export LDFLAGS="-L$deps/lib -lffi -landroid-sysvshm -Wl,-rpath=$RUNTIME_PATH/lib"
           export CFLAGS="-O2 -pipe -ftree-vectorize -Wno-error"
           export PULSE_CFLAGS="-I$deps/include/pulse"
@@ -336,37 +330,6 @@ jobs:
 
           export WINE_NLS_DIR=/opt/wine64-native/nls
 
-
-          export ac_cv_lib_wayland_server_wl_display_init_shm=yes
-          export ac_cv_lib_wayland_egl_wl_egl_window_create=yes
-          export ac_cv_lib_xkbcommon_xkb_context_new=yes
-          export ac_cv_lib_xkbregistry_rxkb_context_new=yes
-          export ac_cv_header_wayland_client_h=yes
-          export ac_cv_header_wayland_egl_h=yes
-          export ac_cv_header_xkbcommon_xkbcommon_h=yes
-          export ac_cv_header_xkbcommon_xkbregistry_h=yes
-          export ac_cv_header_linux_input_h=yes
-          export ac_cv_prog_wayland_scanner=$(which wayland-scanner)
-          export ac_cv_func_shm_open=yes
-          export ac_cv_search_shm_open="none required"
-          
-          export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
-          export WAYLAND_SCANNER="$(which wayland-scanner)"
-
-          export WAYLAND_CLIENT_CFLAGS="-I$BIONIC_LIBS/include -D__ANDROID__ -DHAVE_SHM_UTILS"
-          export WAYLAND_CLIENT_LIBS="-L$BIONIC_LIBS/lib -lwayland-client -lffi -landroid-sysvshm"
-          export WAYLAND_SERVER_CFLAGS="-I$BIONIC_LIBS/include -D__ANDROID__ -DHAVE_SHM_UTILS"
-          export WAYLAND_SERVER_LIBS="-L$BIONIC_LIBS/lib -lwayland-server -lffi -landroid-sysvshm"
-          
-          export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
-          export CFLAGS="-O2 -pipe -ftree-vectorize -Wno-error"
-          export PULSE_CFLAGS="-I$deps/include/pulse"
-          export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
-
-          export WINE_NLS_DIR=/opt/wine64-native/nls
-
-          # Configuration strictly omitting X11 and injecting Wayland
           ../configure \
             --host=$TARGET \
             --prefix=/tmp/wine-install-wow64 \
