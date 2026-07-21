@@ -526,11 +526,12 @@ jobs:
             libgnutls28-dev libopenal-dev \
             libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev \
-            libwayland-dev \
+            libwayland-dev libwayland-dev:i386 \
             libwayland-bin \
             wayland-protocols \
-           libxkbcommon-dev \
-           libxkbregistry-dev
+            libxkbcommon-dev libxkbcommon-dev:i386 \
+            libxkbregistry-dev libxkbregistry-dev:i386 \
+            
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -614,10 +615,7 @@ jobs:
           mkdir wine-tools-build
           cd wine-tools-build
           ../configure --without-x --without-vulkan --without-gstreamer   --with-wayland \
-          WAYLAND_CFLAGS="-I/usr/include" \
-          WAYLAND_LIBS="-lwayland-client" \
-          XKBCOMMON_CFLAGS="-I/usr/include" \
-          XKBCOMMON_LIBS="-lxkbcommon -lxkbregistry"
+          
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
