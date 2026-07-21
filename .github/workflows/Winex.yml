@@ -353,6 +353,19 @@ jobs:
                  sed -i '/^#include "config.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$SERVER_FSYNC_FILE"
              echo "✔ server/fsync.c patched"
                  fi
+                           echo ""
+          echo "=============================================="
+          echo "6. Force WineWayland driver as default"
+          echo "=============================================="
+          INF_FILE="loader/wine.inf"
+          if [ -f "$INF_FILE" ]; then
+            # This injects a registry entry instructing Wine to use Wayland directly
+            sed -i '/\[Drivers\]/a HKCU,"Software\\Wine\\Drivers","Graphics",,"wayland"' "$INF_FILE"
+            echo "✔ Injected native Wayland driver routing to wine.inf"
+          else
+            echo "ℹ wine.inf not found, cannot force Wayland registry key"
+          fi
+          
 
           echo ""
           echo "=============================================="
@@ -697,7 +710,7 @@ jobs:
             --without-unwind \
             --without-usb \
             --without-v4l2 \
-            --without-wayland \
+            --with-wayland \
             --without-xinerama \
             --without-xxf86vm \
             --with-vulkan \
