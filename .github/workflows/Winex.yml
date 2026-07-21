@@ -730,12 +730,15 @@ jobs:
             --without-xinerama \
             --without-xxf86vm \
             --with-vulkan \
-            --with-vkd3d \
             --without-xshm \
             --with-xinput --with-xinput2 \
             --disable-amd_ags_x64 \
-            --without-amd_ags_x64 \
-            --enable-wineandroid_drv=no
+            --enable-wineandroid_drv=no \
+            ac_cv_lib_wayland_client_wl_display_connect=yes \
+            ac_cv_lib_wayland_egl_wl_egl_window_create=yes \
+            ac_cv_lib_xkbcommon_xkb_context_new=yes \
+            ac_cv_lib_xkbregistry_rxkb_context_new=yes
+            
 
           # === Build and install ===
           make -j$(nproc)
