@@ -614,12 +614,16 @@ jobs:
           
           mkdir wine-tools-build
           cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-gstreamer   --with-wayland \
-          # === Add these to the end of the ./configure command ===
-          ac_cv_lib_wayland_client_wl_display_connect=yes \
-          ac_cv_lib_wayland_egl_wl_egl_window_create=yes \
-          ac_cv_lib_xkbcommon_xkb_context_new=yes \
-          ac_cv_lib_xkbregistry_rxkb_context_new=yes
+          .../configure \
+            --without-x \
+            --without-vulkan \
+            --without-gstreamer \
+            --with-wayland \
+            ac_cv_lib_wayland_client_wl_display_connect=yes \
+            ac_cv_lib_wayland_egl_wl_egl_window_create=yes \
+            ac_cv_lib_xkbcommon_xkb_context_new=yes \
+            ac_cv_lib_xkbregistry_rxkb_context_new=yes
+
 
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
