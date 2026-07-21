@@ -1,4 +1,4 @@
-name: aarch64 Wine+patch+vkd3d_Fix for Termux 
+name: aarch64 Wayland Wine+patch+vkd3d_Fix for Termux 
 
 on:
   push:
