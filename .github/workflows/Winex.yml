@@ -614,7 +614,7 @@ jobs:
           
           mkdir wine-tools-build
           cd wine-tools-build
-          .../configure \
+          ../configure \
             --without-x \
             --without-vulkan \
             --without-gstreamer \
