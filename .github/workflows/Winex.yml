@@ -613,7 +613,11 @@ jobs:
           
           mkdir wine-tools-build
           cd wine-tools-build
-          ../configure --without-x --without-vulkan --without-gstreamer 
+          ../configure --without-x --without-vulkan --without-gstreamer   --with-wayland \
+          WAYLAND_CFLAGS="-I/usr/include" \
+          WAYLAND_LIBS="-lwayland-client" \
+          XKBCOMMON_CFLAGS="-I/usr/include" \
+          XKBCOMMON_LIBS="-lxkbcommon -lxkbregistry"
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
