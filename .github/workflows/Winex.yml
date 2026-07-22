@@ -210,8 +210,10 @@ jobs:
       - name: Android Specific Overrides
         run: |
           cd ${{ env.WINE_SOURCE_DIR }}/source
+          # Keep the virtual.c override if it is required for your Termux memory management
           curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/virtual.c -o dlls/ntdll/unix/virtual.c
-          curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/env_pro10.c -o dlls/ntdll/unix/env.c
+          
+          # REMOVED the env_pro10.c download line so Wine uses its native env.c
 
       - name: Termux Path & PulseAudio Integration
         run: |
