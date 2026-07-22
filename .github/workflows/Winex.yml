@@ -306,6 +306,13 @@ jobs:
           export ac_cv_prog_wayland_scanner=$(which wayland-scanner)
           export ac_cv_func_shm_open=yes
           export ac_cv_search_shm_open="none required"
+          export ac_cv_lib_soname_wayland_client=libwayland-client.so
+          export ac_cv_lib_soname_wayland_egl=libwayland-egl.so
+          export ac_cv_lib_soname_wayland_cursor=libwayland-cursor.so
+          export ac_cv_lib_soname_xkbcommon=libxkbcommon.so
+          export ac_cv_lib_soname_xkbregistry=libxkbregistry.so
+          export ac_cv_lib_wayland_cursor_wl_cursor_image_get_buffer=yes
+          
           
           export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
           export WAYLAND_SCANNER="$(which wayland-scanner)"
