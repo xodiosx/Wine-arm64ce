@@ -312,6 +312,13 @@ jobs:
           export ac_cv_lib_soname_xkbcommon=libxkbcommon.so
           export ac_cv_lib_soname_xkbregistry=libxkbregistry.so
           export ac_cv_lib_wayland_cursor_wl_cursor_image_get_buffer=yes
+          export WAYLAND_CURSOR_CFLAGS="-I$deps/include"
+          export WAYLAND_CURSOR_LIBS="-L$deps/lib -lwayland-cursor"
+          export XKBCOMMON_CFLAGS="-I$deps/include"
+          export XKBCOMMON_LIBS="-L$deps/lib -lxkbcommon"
+          export XKBREGISTRY_CFLAGS="-I$deps/include"
+          export XKBREGISTRY_LIBS="-L$deps/lib -lxkbregistry"
+          
           
           
           export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
