@@ -318,6 +318,9 @@ jobs:
           export XKBCOMMON_LIBS="-L$deps/lib -lxkbcommon"
           export XKBREGISTRY_CFLAGS="-I$deps/include"
           export XKBREGISTRY_LIBS="-L$deps/lib -lxkbregistry"
+
+          export FREETYPE_CFLAGS="-I$deps/include/freetype2"
+          export FREETYPE_LIBS="-L$deps/lib -lfreetype"
           
           
           
