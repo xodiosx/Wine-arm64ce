@@ -131,15 +131,6 @@ jobs:
           rm ${{ env.LLVMMINGW_NAME }}.tar.xz
           echo "/opt/${{ env.LLVMMINGW_NAME }}/bin" >> $GITHUB_PATH
 
-      - name: Set Locales
-        run: |
-          apt-get install -y locales
-          sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen
-          locale-gen
-          echo "LANG=ko_KR.UTF-8" >> $GITHUB_ENV
-          echo "LC_ALL=ko_KR.UTF-8" >> $GITHUB_ENV
-          echo "LANGUAGE=ko_KR:ko" >> $GITHUB_ENV
- 
       - name: Clone Wine Source Repository
         run: |
           set -e
@@ -276,6 +267,7 @@ jobs:
 
           export HOST_WAYLAND_SCANNER=$(which wayland-scanner)
 
+          # Wayland Stubs 
           cat > "$deps/lib/pkgconfig/wayland-client.pc" << EOF
           prefix=$deps
           exec_prefix=\${prefix}
@@ -300,6 +292,7 @@ jobs:
           Cflags: -I\${includedir}
           EOF
 
+          # Force cache variables to bypass Wayland linker tests
           export ac_cv_lib_wayland_client_wl_display_connect=yes
           export ac_cv_lib_wayland_server_wl_display_init_shm=yes
           export ac_cv_lib_wayland_egl_wl_egl_window_create=yes
@@ -323,13 +316,17 @@ jobs:
           export WAYLAND_SERVER_LIBS="-L$deps/lib -lwayland-server -lffi -landroid-sysvshm"
           
           export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
-          export LDFLAGS="-L$deps/lib -lffi -landroid-sysvshm -Wl,-rpath=$RUNTIME_PATH/lib"
+          
+          # Fixed LDFLAGS: Safe for compiler checks
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
+          
           export CFLAGS="-O2 -pipe -ftree-vectorize -Wno-error"
           export PULSE_CFLAGS="-I$deps/include/pulse"
           export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
 
           export WINE_NLS_DIR=/opt/wine64-native/nls
 
+          # Configuration strictly omitting X11 and injecting Wayland
           ../configure \
             --host=$TARGET \
             --prefix=/tmp/wine-install-wow64 \
