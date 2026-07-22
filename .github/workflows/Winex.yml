@@ -254,7 +254,7 @@ jobs:
           Name: wayland-client
           Description: Wayland client bionic lib
           Version: 1.22.0
-          Libs: -L\${libdir} -lwayland-client -lffi -landroid-sysvshm
+          Libs: -L\${libdir} -lwayland-client -lffi -landroid-shmem
           Cflags: -I\${includedir}
           EOF
 
@@ -306,9 +306,10 @@ jobs:
           export WAYLAND_SCANNER="$(which wayland-scanner)"
 
           export WAYLAND_CLIENT_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
-          export WAYLAND_CLIENT_LIBS="-L$deps/lib -lwayland-client -lffi -landroid-sysvshm"
+          export WAYLAND_CLIENT_LIBS="-L$deps/lib -lwayland-client -lffi -landroid-shmem"
           export WAYLAND_SERVER_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
-          export WAYLAND_SERVER_LIBS="-L$deps/lib -lwayland-server -lffi -landroid-sysvshm"
+          export WAYLAND_SERVER_LIBS="-L$deps/lib -lwayland-server -lffi -landroid-shmem"
+
           
           export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
           
