@@ -310,9 +310,8 @@ jobs:
             libdbus-1-dev libfontconfig-dev \
             libgnutls28-dev libopenal-dev \
             libasound2-dev libgstreamer-plugins-base1.0-dev \
-            libgstreamer1.0-dev libglib2.0-dev \            
+            libgstreamer1.0-dev libglib2.0-dev \
             libwayland-dev
-            
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
