@@ -22,7 +22,7 @@ on:
         default: ''
         type: string
       enable_patches:
-        description: 'Apply Termux/Android compatibility patches'
+        description: 'Apply esync init patch'
         required: true
         default: true
         type: boolean
@@ -86,215 +86,27 @@ jobs:
           echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
           echo "WINE_SOURCE_NAME=$WINE_SOURCE" >> $GITHUB_ENV
 
-      - name: Apply Termux and Android compatibility patches
+      - name: Apply esync init patch (server/process.c)
         if: ${{ github.event.inputs.enable_patches != 'false' }}
         run: |
           cd source
-
-          # 1. Replace /tmp with Termux tmp directory
-          find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) \
-            -exec grep -l "/tmp" {} \; 2>/dev/null | \
-            xargs sed -i 's|/tmp/|/data/data/com.termux/files/usr/tmp/|g' 2>/dev/null || true
-          find server -type f \( -name "*.c" -o -name "*.h" \) \
-            -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-          find . -name "file.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-          find . -name "loader.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-          find . -name "server.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-
-          # 2. Fix InterlockedOr casting
-          FILE="dlls/atiadlxx/atiadlxx_main.c"
-          if [ -f "$FILE" ]; then
-            sed -i 's/LONG dummy/long dummy/g' "$FILE"
-            sed -i 's|InterlockedOr(&dummy, 0)|_InterlockedOr((long volatile *)\&dummy, 0)|g' "$FILE"
-          fi
-
-          # 3. Clean wdscore.spec stubs
-          FILE3="dlls/wdscore/wdscore.spec"
-          if [ -f "$FILE3" ] && grep -q '@ stub' "$FILE3"; then
-            sed -i '/CDynamicArray/d' "$FILE3"
-          fi
-
-          # 4. Fix virtual.c for Android limits
-          FILE="dlls/ntdll/unix/virtual.c"
-          if [ -f "$FILE" ]; then
-            sed -i 's/unsigned int vprot, sec_flags;/unsigned int vprot = 0, sec_flags = 0;/g' "$FILE"
-            sed -i 's/_limit.*0x7fffffff0000/_limit = (void *)0x7fffff0000/g' "$FILE"
-            sed -i 's/use_kernel_writewatch = 1;/use_kernel_writewatch = 0;/g' "$FILE"
-            sed -i 's/uffd_fd = syscall( __NR_userfaultfd/uffd_fd = -1; \/\/ syscall( __NR_userfaultfd/g' "$FILE"
-            sed -i '/static void kernel_writewatch_init(void)/{n;s/^{/{\n    return;/}' "$FILE"
-          fi
-
-          # 5. Patch loader.c
-          FILE_LOADER="dlls/ntdll/loader.c"
-          if [ -f "$FILE_LOADER" ]; then
-            sed -i 's/ULONG buffer\[16\];/ULONG buffer\[32\];/g' "$FILE_LOADER"
-            sed -i 's/base = (char \*)nt->OptionalHeader.ImageBase;/if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) base = (char *)((const IMAGE_NT_HEADERS64 *)nt)->OptionalHeader.ImageBase; else base = (char *)(UINT_PTR)((const IMAGE_NT_HEADERS32 *)nt)->OptionalHeader.ImageBase;/g' "$FILE_LOADER"
-          fi
-          FILE_LOADER_UNIX="dlls/ntdll/unix/loader.c"
-          if [ -f "$FILE_LOADER_UNIX" ]; then
-            sed -i 's/^\(\s*\)mallopt( M_PERTURB, 0xff );/\1\/\/ mallopt( M_PERTURB, 0xff );/g' "$FILE_LOADER_UNIX"
-            sed -i 's/^\(\s*\)mallopt( M_PERTURB, 0 );/\1\/\/ mallopt( M_PERTURB, 0 );/g' "$FILE_LOADER_UNIX"
-          fi
-
-          # 6. Patch wine.inf for FEX libraries
-          INF="loader/wine.inf.in"
-          if [ -f "$INF" ] && ! grep -q 'libarm64ecfex.dll' "$INF"; then
-            sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' "$INF"
-            sed -i 's/xtajit\.dll/libwow64fex.dll/g' "$INF"
-          fi
-
-          # 7. Vulkan VRAM faking
-          FILE="dlls/winevulkan/vulkan.c"
-          if [ -f "$FILE" ] && ! grep -q 'WINE_VRAM_SIZE' "$FILE"; then
-            sed -i '/p_vkGetPhysicalDeviceMemoryProperties(host_physical_device, \&object->memory_properties);/a \
-              { \
-                  const char *v = getenv("WINE_VRAM_SIZE"); \
-                  uint64_t s = v ? (uint64_t)atoll(v)*1024*1024 : (uint64_t)2048*1024*1024; \
-                  uint32_t k; \
-                  for (k=0; k<object->memory_properties.memoryHeapCount; k++) \
-                      if (object->memory_properties.memoryHeaps[k].flags \& VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) \
-                          object->memory_properties.memoryHeaps[k].size = s; \
-              }' "$FILE"
-          fi
-
-          # 8. Add PulseAudio link flag natively
-          FILE_PULSE_MK="dlls/winepulse.drv/Makefile.in"
-          if [ -f "$FILE_PULSE_MK" ] && ! grep -q -- '-lpulse' "$FILE_PULSE_MK"; then
-            sed -i 's/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm -lpulse/' "$FILE_PULSE_MK"
-          fi
-
-          # 9. Replace xtajit with FEX library names globally
-          find . -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/xtajit64\.dll/libarm64ecfex.dll/g' {} +
-          find . -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/xtajit\.dll/libwow64fex.dll/g' {} +
-
-          # 10. Update ntdll architecture strings
-          find dlls/ntdll -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|x86_64-windows|aarch64-windows|g' {} +
-
-          # 11. Vulkan latency control patch
-          FILE_VULKAN_H="include/wine/vulkan_driver.h"
-          if [ -f "$FILE_VULKAN_H" ] && ! grep -q "low_latency_enabled" "$FILE_VULKAN_H"; then
-            sed -i '/keyed_mutexes_enabled;/a \    BOOL low_latency_enabled;\n    BOOL use_standard_latency;' "$FILE_VULKAN_H"
-            sed -i '/PFN_vkQueuePresentKHR p_vkQueuePresentKHR;/a \    PFN_vkSetLatencySleepModeNV p_vkSetLatencySleepModeNV;\n    PFN_vkWaitForPresentKHR p_vkWaitForPresentKHR;' "$FILE_VULKAN_H"
-          fi
-
-          FILE_VULKAN_C="dlls/win32u/vulkan.c"
-          if [ -f "$FILE_VULKAN_C" ] && ! grep -q "win32u_vkSetLatencySleepModeNV" "$FILE_VULKAN_C"; then
-            FUNC_DEF="static VkResult win32u_vkSetLatencySleepModeNV(VkDevice device, VkSwapchainKHR swapchain, const VkLatencySleepModeInfoNV *pSleepModeInfo) { VkLatencySleepModeInfoNV host; struct vulkan_device *vk_dev = vulkan_device_from_handle(device); struct swapchain *vk_sw = swapchain_from_handle(swapchain); vk_dev->low_latency_enabled = pSleepModeInfo->lowLatencyMode; vk_dev->use_standard_latency = pSleepModeInfo->lowLatencyMode; host.sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV; host.pNext = NULL; host.lowLatencyMode = pSleepModeInfo->lowLatencyMode; host.lowLatencyBoost = pSleepModeInfo->lowLatencyBoost; host.minimumIntervalUs = pSleepModeInfo->minimumIntervalUs; return vk_dev->p_vkSetLatencySleepModeNV(vk_dev->host.device, vk_sw->obj.host.swapchain, &host); }\\n\\nstatic void win32u_apply_standard_latency(struct vulkan_device *dev, VkSwapchainKHR sw, uint64_t id) { if (dev->p_vkWaitForPresentKHR) dev->p_vkWaitForPresentKHR(dev->host.device, sw, id, 1000000000); }\\n\\n#define win32u_vk_find_struct(s, t) win32u_vk_find_struct_((void *)s, VK_STRUCTURE_TYPE_##t)\\nstatic void *win32u_vk_find_struct_(void *s, VkStructureType t) { VkBaseOutStructure *h; for (h = s; h; h = h->pNext) { if (h->sType == t) return h; } return NULL; }\\n"
-            sed -i "/static VkResult win32u_vkCreateSwapchainKHR/i $FUNC_DEF" "$FILE_VULKAN_C"
-            sed -i '/VkPipelineStageFlags waitStage/a \        VkLatencySubmissionPresentIdNV latencySubmitInfo;\n        VkPresentIdKHR *present_id;' "$FILE_VULKAN_C"
-            QUEUE_LOGIC="        if ((present_id = win32u_vk_find_struct(&present_info_host, PRESENT_ID_KHR))) { if (queue->device->low_latency_enabled) { latencySubmitInfo.sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV; latencySubmitInfo.pNext = NULL; latencySubmitInfo.presentID = *present_id->pPresentIds; submitInfo.pNext = &latencySubmitInfo; } if (queue->device->use_standard_latency) win32u_apply_standard_latency(queue->device, present_info->pSwapchains[0], *present_id->pPresentIds); }"
-            sed -i "/submitInfo.pSignalSemaphores = &blit_sema;/a $QUEUE_LOGIC" "$FILE_VULKAN_C"
-            sed -i '/.p_get_host_surface_extension = win32u_get_host_surface_extension,/a \    .p_vkSetLatencySleepModeNV = win32u_vkSetLatencySleepModeNV,' "$FILE_VULKAN_C"
-          fi
-
-          # 12. External Proton Patches
-          PATCH_BASE="https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/path"
-          for i in 1 2 8 ; do
-            wget -q -O "${i}.patch" "${PATCH_BASE}/${i}.patch"
-            if git apply --check "${i}.patch" 2>/dev/null; then
-              git apply --whitespace=fix "${i}.patch"
-            elif git apply --3way --check "${i}.patch" 2>/dev/null; then
-              git apply --3way --whitespace=fix "${i}.patch"
-            fi
-          done
-
-          # 13. SHM Fallbacks for Bionic
-          for f in dlls/ntdll/unix/fsync.c dlls/ntdll/unix/esync.c; do
-            [ -f "$f" ] && sed -i '/^#include "unix_private.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$f"
-          done
-          for f in server/esync.c server/fsync.c; do
-            [ -f "$f" ] && sed -i '/^#include "config.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$f"
-          done
-
-      - name: Create Android SHM headers
-        if: ${{ github.event.inputs.enable_patches != 'false' }}       
-        run: |
-          cd source
-          mkdir -p android/shm_utils
-          cat << 'EOF' > android/shm_utils/shm_utils.h
-          #ifndef __WINE_SERVER_SHM_UTILS_H
-          #define __WINE_SERVER_SHM_UTILS_H
-
-          #ifdef __ANDROID__
-          #include <fcntl.h>
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <unistd.h>
-          #include <sys/stat.h>
-
-          static inline int shm_open(const char *name, int oflag, mode_t mode)
-          {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/data/data/com.termux/files/usr/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int fd = open(fname, oflag, mode);
-              free(fname);
-              return fd;
-          }
-
-          static inline int shm_unlink(const char *name)
-          {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/data/data/com.termux/files/usr/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int ret = unlink(fname);
-              free(fname);
-              return ret;
-          }
-          #endif /* __ANDROID__ */
-
-          #endif /* __WINE_SERVER_SHM_UTILS_H */
+          cat << 'EOF' > esync.patch
+          --- a/server/process.c
+          +++ b/server/process.c
+          @@ -1703,6 +1710,11 @@ size_t server_init_process(void)
+                           inproc_device_fd = FSYNC_USED_BY_SERVER;
+                           fsync_init( pid );
+                       }
+          +            else if (reply->inproc_device == ESYNC_USED_BY_SERVER)
+          +            {
+          +                int shm_fd = wine_server_receive_fd( &handle );
+          +                esync_init( shm_fd );
+          +            }
+                       else if (reply->inproc_device)
+                       {
+                           inproc_device_fd = wine_server_receive_fd( &handle );
           EOF
-
-          mkdir -p android/android_sysvshm/sys
-          cat << 'EOF' > android/android_sysvshm/sys/shm.h
-          #ifndef _SYS_SHM_H
-          #define _SYS_SHM_H 1
-          #include <stdint.h>
-          #include <sys/types.h>
-          #include <sys/ipc.h>
-          #include <fcntl.h>
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <unistd.h>
-          #include <sys/stat.h>
-          #ifdef __cplusplus
-          extern "C" {
-          #endif
-          #define IPC_CREAT   01000
-          #define IPC_EXCL    02000
-          #define IPC_NOWAIT  04000
-          #define IPC_RMID    0
-          #define IPC_SET     1
-          #define IPC_STAT    2
-          #define IPC_INFO    3
-          #define IPC_PRIVATE ((key_t) 0)
-          #define SHM_R       0400
-          #define SHM_W       0200
-          #define SHM_RDONLY  010000
-          #define SHM_RND     020000
-          #define SHM_REMAP   040000
-          #define SHM_EXEC    0100000
-          #define SHM_LOCK    11
-          #define SHM_UNLOCK  12
-          typedef unsigned long int shmatt_t;
-          typedef long int __long_time_t;
-          struct debian_ipc_perm { key_t __key; __uid_t uid; __gid_t gid; __uid_t cuid; __gid_t cgid; unsigned short int mode; unsigned short int __pad1; unsigned short int __seq; unsigned short int __pad2; unsigned long int __unused1; unsigned long int __unused2; };
-          struct shmid_ds { struct debian_ipc_perm shm_perm; size_t shm_segsz; __long_time_t shm_atime; unsigned long int __unused1; __long_time_t shm_dtime; unsigned long int __unused2; __long_time_t shm_ctime; unsigned long int __unused3; __pid_t shm_cpid; __pid_t shm_lpid; shmatt_t shm_nattch; unsigned long int __unused4; unsigned long int __unused5; };
-          extern int shmctl(int __shmid, int __cmd, struct shmid_ds *__buf);
-          extern int shmget(key_t __key, size_t __size, int __shmflg);
-          extern void *shmat(int __shmid, const void *__shmaddr, int __shmflg);
-          extern int shmdt(const void *__shmaddr);
-          #ifdef __cplusplus
-          }
-          #endif
-          #endif /* _SYS_SHM_H */
-          EOF
-
-          mkdir -p dlls/ntdll/unix/android/shm_utils
-          ln -sf ../../../../../android/shm_utils/shm_utils.h dlls/ntdll/unix/android/shm_utils/shm_utils.h          
-          mkdir -p server/android/shm_utils
-          ln -sf ../../../android/shm_utils/shm_utils.h server/android/shm_utils/shm_utils.h
+          git apply esync.patch
 
       - name: Install host dependencies
         run: |
@@ -311,7 +123,7 @@ jobs:
             libgnutls28-dev libopenal-dev \
             libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev \
-            libwayland-dev libxkbcommon-dev wayland-protocols
+            libwayland-dev 
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -345,70 +157,13 @@ jobs:
           
           # Inject Missing Wayland/EGL/xkbcommon Headers into Target Sysroot
           mkdir -p $deps/include/EGL $deps/include/wayland-client $deps/include/xkbcommon $deps/share/wayland-protocols
-          
-          
-
-          cat << 'EOF' > $deps/include/wayland-client.h
-          #ifndef WAYLAND_CLIENT_H
-          #define WAYLAND_CLIENT_H
-          #include <wayland-client-core.h>
-          #endif
-          EOF
-
-          cat << 'EOF' > $deps/include/wayland-client-core.h
-          #ifndef WAYLAND_CLIENT_CORE_H
-          #define WAYLAND_CLIENT_CORE_H
-          struct wl_display;
-          struct wl_proxy;
-          #ifdef __cplusplus
-          extern "C" {
-          #endif
-          struct wl_display *wl_display_connect(const char *name);
-          void wl_display_disconnect(struct wl_display *display);
-          #ifdef __cplusplus
-          }
-          #endif
-          #endif
-          EOF
-
-          cat << 'EOF' > $deps/include/wayland-cursor.h
-          #ifndef WAYLAND_CURSOR_H
-          #define WAYLAND_CURSOR_H
-          struct wl_cursor_theme;
-          struct wl_cursor_theme *wl_cursor_theme_load(const char *name, int size, struct wl_shm *shm);
-          #endif
-          EOF
-
-          cat << 'EOF' > $deps/include/xkbcommon/xkbcommon.h
-          #ifndef _XKBCOMMON_H
-          #define _XKBCOMMON_H
-          struct xkb_context;
-          struct xkb_context *xkb_context_new(int flags);
-          #endif
-          EOF
-
-          cat << 'EOF' > $deps/include/xkbcommon/xkbregistry.h
-          #ifndef _XKBREGISTRY_H
-          #define _XKBREGISTRY_H
-          struct rxkb_context;
-          struct rxkb_context *rxkb_context_new(int flags);
-          #endif
-          EOF
-
+                        
           mkdir -p $deps/lib/pkgconfig
           mkdir -p $deps/share/pkgconfig
           
-          cat << EOF > $deps/lib/pkgconfig/wayland-scanner.pc
-          prefix=$deps
-          exec_prefix=\${prefix}
-          bindir=\${exec_prefix}/bin
-          wayland_scanner=$HOST_SCANNER
-          Name: Wayland Scanner
-          Description: Wayland scanner stub redirecting to host for cross-compilation
-          Version: 1.22.0
-          EOF
-          cp $deps/lib/pkgconfig/wayland-scanner.pc $deps/share/pkgconfig/wayland-scanner.pc
-          
+          export HOST_WAYLAND_SCANNER=$(which wayland-scanner)
+
+          # Wayland Stubs 
           cat > "$deps/lib/pkgconfig/wayland-client.pc" << EOF
           prefix=$deps
           exec_prefix=\${prefix}
@@ -433,50 +188,7 @@ jobs:
           Cflags: -I\${includedir}
           EOF
 
-          cat > "$deps/lib/pkgconfig/wayland-cursor.pc" << EOF
-          prefix=$deps
-          exec_prefix=\${prefix}
-          libdir=\${exec_prefix}/lib
-          includedir=\${prefix}/include
-          Name: wayland-cursor
-          Description: Wayland cursor bionic lib
-          Version: 1.22.0
-          Libs: -L\${libdir} -lwayland-cursor
-          Cflags: -I\${includedir}
-          EOF
-
-          cat > "$deps/share/pkgconfig/wayland-protocols.pc" << EOF
-          prefix=$deps
-          datarootdir=\${prefix}/share
-          pkgdatadir=\${datarootdir}/wayland-protocols
-          Name: Wayland Protocols
-          Description: Wayland protocol files
-          Version: 1.32
-          EOF
-
-          cat > "$deps/lib/pkgconfig/xkbcommon.pc" << EOF
-          prefix=$deps
-          exec_prefix=\${prefix}
-          libdir=\${exec_prefix}/lib
-          includedir=\${prefix}/include
-          Name: xkbcommon
-          Description: XKB API stub
-          Version: 1.5.0
-          Libs: -L\${libdir} -lxkbcommon
-          Cflags: -I\${includedir}
-          EOF
-
-          cat > "$deps/lib/pkgconfig/xkbregistry.pc" << EOF
-          prefix=$deps
-          exec_prefix=\${prefix}
-          libdir=\${exec_prefix}/lib
-          includedir=\${prefix}/include
-          Name: xkbregistry
-          Description: XKB Registry API stub
-          Version: 1.5.0
-          Libs: -L\${libdir} -lxkbregistry
-          Cflags: -I\${includedir}
-          EOF
+          
 
       - name: Stage Wayland and XKB headers for Android target
         run: |
@@ -484,8 +196,8 @@ jobs:
           sudo mkdir -p "$deps/include/xkbcommon" "$deps/include/wayland"
 
           # Copy host Wayland and XKB headers (including xkbcommon-rxkb.h)
-          sudo cp -f /usr/include/wayland*.h "$deps/include/" 2>/dev/null || true
-          sudo cp -rf /usr/include/xkbcommon/* "$deps/include/xkbcommon/"
+          #sudo cp -f /usr/include/wayland*.h "$deps/include/" 2>/dev/null || true
+          #sudo cp -rf /usr/include/xkbcommon/* "$deps/include/xkbcommon/"
           sudo chmod -R a+rX "$deps/include"
           
       
