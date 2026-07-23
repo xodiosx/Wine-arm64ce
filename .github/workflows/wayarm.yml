@@ -213,7 +213,6 @@ jobs:
           mkdir -p android/shm_utils
           cat << 'EOF' > android/shm_utils/shm_utils.h
           #ifndef __WINE_SERVER_SHM_UTILS_H
-          #ifndef __WINE_SERVER_SHM_UTILS_H
           #define __WINE_SERVER_SHM_UTILS_H
 
           #ifdef __ANDROID__
@@ -283,7 +282,7 @@ jobs:
           struct debian_ipc_perm { key_t __key; __uid_t uid; __gid_t gid; __uid_t cuid; __gid_t cgid; unsigned short int mode; unsigned short int __pad1; unsigned short int __seq; unsigned short int __pad2; unsigned long int __unused1; unsigned long int __unused2; };
           struct shmid_ds { struct debian_ipc_perm shm_perm; size_t shm_segsz; __long_time_t shm_atime; unsigned long int __unused1; __long_time_t shm_dtime; unsigned long int __unused2; __long_time_t shm_ctime; unsigned long int __unused3; __pid_t shm_cpid; __pid_t shm_lpid; shmatt_t shm_nattch; unsigned long int __unused4; unsigned long int __unused5; };
           extern int shmctl(int __shmid, int __cmd, struct shmid_ds *__buf);
-          export int shmget(key_t __key, size_t __size, int __shmflg);
+          extern int shmget(key_t __key, size_t __size, int __shmflg);
           extern void *shmat(int __shmid, const void *__shmaddr, int __shmflg);
           extern int shmdt(const void *__shmaddr);
           #ifdef __cplusplus
@@ -312,7 +311,7 @@ jobs:
             libgnutls28-dev libopenal-dev \
             libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev \
-            libwayland-dev libxkbcommon-dev
+            libwayland-dev libxkbcommon-dev wayland-protocols
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -345,7 +344,7 @@ jobs:
           export HOST_SCANNER=$(which wayland-scanner)
           
           # Inject Missing Wayland/EGL/xkbcommon Headers into Target Sysroot
-          mkdir -p $deps/include/EGL $deps/include/wayland-client $deps/include/xkbcommon
+          mkdir -p $deps/include/EGL $deps/include/wayland-client $deps/include/xkbcommon $deps/share/wayland-protocols
           
           cat << 'EOF' > $deps/include/EGL/egl.h
           #ifndef __EGL_H__
@@ -413,6 +412,14 @@ jobs:
           #endif
           EOF
 
+          cat << 'EOF' > $deps/include/wayland-cursor.h
+          #ifndef WAYLAND_CURSOR_H
+          #define WAYLAND_CURSOR_H
+          struct wl_cursor_theme;
+          struct wl_cursor_theme *wl_cursor_theme_load(const char *name, int size, struct wl_shm *shm);
+          #endif
+          EOF
+
           cat << 'EOF' > $deps/include/xkbcommon/xkbcommon.h
           #ifndef _XKBCOMMON_H
           #define _XKBCOMMON_H
@@ -465,6 +472,27 @@ jobs:
           Version: 1.22.0
           Libs: -L\${libdir} -lwayland-egl
           Cflags: -I\${includedir}
+          EOF
+
+          cat > "$deps/lib/pkgconfig/wayland-cursor.pc" << EOF
+          prefix=$deps
+          exec_prefix=\${prefix}
+          libdir=\${exec_prefix}/lib
+          includedir=\${prefix}/include
+          Name: wayland-cursor
+          Description: Wayland cursor bionic lib
+          Version: 1.22.0
+          Libs: -L\${libdir} -lwayland-cursor
+          Cflags: -I\${includedir}
+          EOF
+
+          cat > "$deps/share/pkgconfig/wayland-protocols.pc" << EOF
+          prefix=$deps
+          datarootdir=\${prefix}/share
+          pkgdatadir=\${datarootdir}/wayland-protocols
+          Name: Wayland Protocols
+          Description: Wayland protocol files
+          Version: 1.32
           EOF
 
           cat > "$deps/lib/pkgconfig/xkbcommon.pc" << EOF
@@ -523,16 +551,14 @@ jobs:
           export PATH="/opt/${LLVMMINGW_NAME}/bin:$PATH"
           if [ ! -f ./configure ]; then
             ./autogen.sh || true
-          
-          mkdir wine-tools-build
+          fi
+
+          mkdir -p wine-tools-build
           cd wine-tools-build
           ../configure --without-x --without-wayland --without-vulkan --without-gstreamer 
           make -j$(nproc) __tooldeps__ nls/all
           cd ..
           mv wine-tools-build wine-tools
-          export winetools_dir="./wine-tools"
-          
-          fi
 
       - name: Build Wine (ARM64EC + aarch64 + i386) Wayland Native
         run: |
@@ -558,6 +584,7 @@ jobs:
           export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
           export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
 
+          export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
           export CPPFLAGS="-I$deps/include -I$deps/include/EGL -I$deps/include/wayland-client -I$deps/include/xkbcommon --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
@@ -575,24 +602,39 @@ jobs:
           export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
           export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
-          # Wayland cache overrides
+          # Wayland & Input autoconf overrides
           export ac_cv_lib_wayland_client_wl_display_connect=yes
           export ac_cv_lib_wayland_server_wl_display_init_shm=yes
           export ac_cv_lib_wayland_egl_wl_egl_window_create=yes
+          export ac_cv_lib_wayland_cursor_wl_cursor_theme_load=yes
           export ac_cv_lib_xkbcommon_xkb_context_new=yes
           export ac_cv_lib_xkbregistry_rxkb_context_new=yes
+
           export ac_cv_header_wayland_client_h=yes
           export ac_cv_header_wayland_egl_h=yes
+          export ac_cv_header_wayland_cursor_h=yes
           export ac_cv_header_xkbcommon_xkbcommon_h=yes
           export ac_cv_header_xkbcommon_xkbregistry_h=yes
+
           export ac_cv_prog_wayland_scanner=$(which wayland-scanner)
           export ac_cv_lib_soname_wayland_client=libwayland-client.so
           export ac_cv_lib_soname_wayland_egl=libwayland-egl.so
           export ac_cv_lib_soname_wayland_cursor=libwayland-cursor.so
-          
+          export ac_cv_lib_soname_xkbcommon=libxkbcommon.so
+          export ac_cv_lib_soname_xkbregistry=libxkbregistry.so
+
           export WAYLAND_SCANNER="$(which wayland-scanner)"
+          export WAYLAND_PROTOCOLS_DATADIR="$deps/share/wayland-protocols"
           export WAYLAND_CLIENT_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
           export WAYLAND_CLIENT_LIBS="-L$deps/lib -lwayland-client -lffi -landroid-shmem"
+          export WAYLAND_EGL_CFLAGS="-I$deps/include"
+          export WAYLAND_EGL_LIBS="-L$deps/lib -lwayland-egl"
+          export WAYLAND_CURSOR_CFLAGS="-I$deps/include"
+          export WAYLAND_CURSOR_LIBS="-L$deps/lib -lwayland-cursor"
+          export XKBCOMMON_CFLAGS="-I$deps/include"
+          export XKBCOMMON_LIBS="-L$deps/lib -lxkbcommon"
+          export XKBREGISTRY_CFLAGS="-I$deps/include"
+          export XKBREGISTRY_LIBS="-L$deps/lib -lxkbregistry"
 
           ./configure \
             --enable-archs=arm64ec,aarch64,i386 \
