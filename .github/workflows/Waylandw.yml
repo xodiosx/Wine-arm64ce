@@ -226,6 +226,11 @@ jobs:
           cd ${{ env.WINE_SOURCE_DIR }}/source          
           #find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) -exec sed -i 's|/tmp|/data/data/com.termux/files/usr/tmp|g' {} + 2>/dev/null || true
                     
+          curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/server.c -o dlls/ntdll/unix/server.c
+          FILE_SERVER="dlls/ntdll/unix/server.c"
+          if [ -f "$FILE_SERVER" ]; then
+            sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
+          fi
           
           if [ ! -f "configure" ]; then ./autogen.sh; fi
 
