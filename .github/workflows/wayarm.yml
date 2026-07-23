@@ -213,6 +213,7 @@ jobs:
           mkdir -p android/shm_utils
           cat << 'EOF' > android/shm_utils/shm_utils.h
           #ifndef __WINE_SERVER_SHM_UTILS_H
+          #ifndef __WINE_SERVER_SHM_UTILS_H
           #define __WINE_SERVER_SHM_UTILS_H
 
           #ifdef __ANDROID__
@@ -282,7 +283,7 @@ jobs:
           struct debian_ipc_perm { key_t __key; __uid_t uid; __gid_t gid; __uid_t cuid; __gid_t cgid; unsigned short int mode; unsigned short int __pad1; unsigned short int __seq; unsigned short int __pad2; unsigned long int __unused1; unsigned long int __unused2; };
           struct shmid_ds { struct debian_ipc_perm shm_perm; size_t shm_segsz; __long_time_t shm_atime; unsigned long int __unused1; __long_time_t shm_dtime; unsigned long int __unused2; __long_time_t shm_ctime; unsigned long int __unused3; __pid_t shm_cpid; __pid_t shm_lpid; shmatt_t shm_nattch; unsigned long int __unused4; unsigned long int __unused5; };
           extern int shmctl(int __shmid, int __cmd, struct shmid_ds *__buf);
-          extern int shmget(key_t __key, size_t __size, int __shmflg);
+          export int shmget(key_t __key, size_t __size, int __shmflg);
           extern void *shmat(int __shmid, const void *__shmaddr, int __shmflg);
           extern int shmdt(const void *__shmaddr);
           #ifdef __cplusplus
@@ -311,7 +312,7 @@ jobs:
             libgnutls28-dev libopenal-dev \
             libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev \
-            libwayland-dev
+            libwayland-dev libxkbcommon-dev
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -343,6 +344,91 @@ jobs:
           export deps="/data/data/com.termux/files/usr"
           export HOST_SCANNER=$(which wayland-scanner)
           
+          # Inject Missing Wayland/EGL/xkbcommon Headers into Target Sysroot
+          mkdir -p $deps/include/EGL $deps/include/wayland-client $deps/include/xkbcommon
+          
+          cat << 'EOF' > $deps/include/EGL/egl.h
+          #ifndef __EGL_H__
+          #define __EGL_H__
+          #include <EGL/eglplatform.h>
+          typedef void *EGLDisplay;
+          typedef void *EGLSurface;
+          typedef void *EGLContext;
+          typedef void *EGLConfig;
+          typedef unsigned int EGLBoolean;
+          typedef int EGLint;
+          #endif
+          EOF
+
+          cat << 'EOF' > $deps/include/EGL/eglplatform.h
+          #ifndef __EGL_PLATFORM_H__
+          #define __EGL_PLATFORM_H__
+          typedef struct wl_display *EGLNativeDisplayType;
+          typedef struct wl_egl_window *EGLNativeWindowType;
+          typedef void *EGLNativePixmapType;
+          #endif
+          EOF
+
+          cat << 'EOF' > $deps/include/wayland-egl.h
+          #ifndef WAYLAND_EGL_H
+          #define WAYLAND_EGL_H
+          struct wl_surface;
+          struct wl_egl_window {
+              struct wl_surface *surface;
+              int width;
+              int height;
+          };
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          struct wl_egl_window *wl_egl_window_create(struct wl_surface *surface, int width, int height);
+          void wl_egl_window_destroy(struct wl_egl_window *window);
+          void wl_egl_window_resize(struct wl_egl_window *window, int width, int height, int dx, int dy);
+          #ifdef __cplusplus
+          }
+          #endif
+          #endif
+          EOF
+
+          cat << 'EOF' > $deps/include/wayland-client.h
+          #ifndef WAYLAND_CLIENT_H
+          #define WAYLAND_CLIENT_H
+          #include <wayland-client-core.h>
+          #endif
+          EOF
+
+          cat << 'EOF' > $deps/include/wayland-client-core.h
+          #ifndef WAYLAND_CLIENT_CORE_H
+          #define WAYLAND_CLIENT_CORE_H
+          struct wl_display;
+          struct wl_proxy;
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+          struct wl_display *wl_display_connect(const char *name);
+          void wl_display_disconnect(struct wl_display *display);
+          #ifdef __cplusplus
+          }
+          #endif
+          #endif
+          EOF
+
+          cat << 'EOF' > $deps/include/xkbcommon/xkbcommon.h
+          #ifndef _XKBCOMMON_H
+          #define _XKBCOMMON_H
+          struct xkb_context;
+          struct xkb_context *xkb_context_new(int flags);
+          #endif
+          EOF
+
+          cat << 'EOF' > $deps/include/xkbcommon/xkbregistry.h
+          #ifndef _XKBREGISTRY_H
+          #define _XKBREGISTRY_H
+          struct rxkb_context;
+          struct rxkb_context *rxkb_context_new(int flags);
+          #endif
+          EOF
+
           mkdir -p $deps/lib/pkgconfig
           mkdir -p $deps/share/pkgconfig
           
@@ -378,6 +464,30 @@ jobs:
           Description: Wayland EGL bionic lib
           Version: 1.22.0
           Libs: -L\${libdir} -lwayland-egl
+          Cflags: -I\${includedir}
+          EOF
+
+          cat > "$deps/lib/pkgconfig/xkbcommon.pc" << EOF
+          prefix=$deps
+          exec_prefix=\${prefix}
+          libdir=\${exec_prefix}/lib
+          includedir=\${prefix}/include
+          Name: xkbcommon
+          Description: XKB API stub
+          Version: 1.5.0
+          Libs: -L\${libdir} -lxkbcommon
+          Cflags: -I\${includedir}
+          EOF
+
+          cat > "$deps/lib/pkgconfig/xkbregistry.pc" << EOF
+          prefix=$deps
+          exec_prefix=\${prefix}
+          libdir=\${exec_prefix}/lib
+          includedir=\${prefix}/include
+          Name: xkbregistry
+          Description: XKB Registry API stub
+          Version: 1.5.0
+          Libs: -L\${libdir} -lxkbregistry
           Cflags: -I\${includedir}
           EOF
 
@@ -450,7 +560,7 @@ jobs:
 
           export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
           export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
-          export CPPFLAGS="-I$deps/include --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          export CPPFLAGS="-I$deps/include -I$deps/include/EGL -I$deps/include/wayland-client -I$deps/include/xkbcommon --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           
           export CFLAGS="-O2 -pipe -D__aarch64__"  
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"          
@@ -465,6 +575,7 @@ jobs:
           export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
           export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
+          # Wayland cache overrides
           export ac_cv_lib_wayland_client_wl_display_connect=yes
           export ac_cv_lib_wayland_server_wl_display_init_shm=yes
           export ac_cv_lib_wayland_egl_wl_egl_window_create=yes
@@ -526,7 +637,6 @@ jobs:
             --without-xxf86vm \
             --with-vulkan \
             --with-vkd3d \
-            --with-xinput --with-xinput2 \
             --disable-amd_ags_x64 \
             --without-amd_ags_x64 \
             --enable-wineandroid_drv=no
