@@ -669,6 +669,8 @@ jobs:
           export CPPFLAGS="-I$deps/include -DHAVE_XKBCOMMON_XKBCOMMON_RXKB_H=1 -DHAVE_XKBCOMMON_XKBCOMMON_H=1"
           export LDFLAGS="-L$deps/lib"
 
+          export CFLAGS="-O2 -pipe -D__aarch64__ -I$deps/include -DHAVE_XKBCOMMON_XKBCOMMON_RXKB_H=1 -DHAVE_XKBCOMMON_XKBCOMMON_H=1 $CFLAGS"
+          export CPPFLAGS="-I$deps/include -DHAVE_XKBCOMMON_XKBCOMMON_RXKB_H=1 -DHAVE_XKBCOMMON_XKBCOMMON_H=1 $CPPFLAGS"
 
 
           ./configure \
