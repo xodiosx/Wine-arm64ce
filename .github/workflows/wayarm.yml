@@ -519,16 +519,16 @@ jobs:
           Cflags: -I\${includedir}
           EOF
 
-      - name: Stage Wayland headers for Android target
+      - name: Stage Wayland and XKB headers for Android target
         run: |
           deps="/data/data/com.termux/files/usr"
-          sudo mkdir -p "$deps/include/xkbcommon"
+          sudo mkdir -p "$deps/include/xkbcommon" "$deps/include/wayland"
 
-          # Copy modern (1.22+) Wayland C headers to target include dir
-          sudo cp -f /usr/include/wayland*.h "$deps/include/"
+          # Copy host Wayland and XKB headers (including xkbcommon-rxkb.h)
+          sudo cp -f /usr/include/wayland*.h "$deps/include/" 2>/dev/null || true
           sudo cp -rf /usr/include/xkbcommon/* "$deps/include/xkbcommon/"
           sudo chmod -R a+rX "$deps/include"
-      
+          
       
       - name: Install libandroid-shmem and libandroid-spawn
         run: |
