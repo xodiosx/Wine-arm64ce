@@ -346,48 +346,7 @@ jobs:
           # Inject Missing Wayland/EGL/xkbcommon Headers into Target Sysroot
           mkdir -p $deps/include/EGL $deps/include/wayland-client $deps/include/xkbcommon $deps/share/wayland-protocols
           
-          cat << 'EOF' > $deps/include/EGL/egl.h
-          #ifndef __EGL_H__
-          #define __EGL_H__
-          #include <EGL/eglplatform.h>
-          typedef void *EGLDisplay;
-          typedef void *EGLSurface;
-          typedef void *EGLContext;
-          typedef void *EGLConfig;
-          typedef unsigned int EGLBoolean;
-          typedef int EGLint;
-          #endif
-          EOF
-
-          cat << 'EOF' > $deps/include/EGL/eglplatform.h
-          #ifndef __EGL_PLATFORM_H__
-          #define __EGL_PLATFORM_H__
-          typedef struct wl_display *EGLNativeDisplayType;
-          typedef struct wl_egl_window *EGLNativeWindowType;
-          typedef void *EGLNativePixmapType;
-          #endif
-          EOF
-
-          cat << 'EOF' > $deps/include/wayland-egl.h
-          #ifndef WAYLAND_EGL_H
-          #define WAYLAND_EGL_H
-          struct wl_surface;
-          struct wl_egl_window {
-              struct wl_surface *surface;
-              int width;
-              int height;
-          };
-          #ifdef __cplusplus
-          extern "C" {
-          #endif
-          struct wl_egl_window *wl_egl_window_create(struct wl_surface *surface, int width, int height);
-          void wl_egl_window_destroy(struct wl_egl_window *window);
-          void wl_egl_window_resize(struct wl_egl_window *window, int width, int height, int dx, int dy);
-          #ifdef __cplusplus
-          }
-          #endif
-          #endif
-          EOF
+          
 
           cat << 'EOF' > $deps/include/wayland-client.h
           #ifndef WAYLAND_CLIENT_H
