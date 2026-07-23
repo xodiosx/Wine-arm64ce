@@ -519,6 +519,17 @@ jobs:
           Cflags: -I\${includedir}
           EOF
 
+      - name: Stage Wayland headers for Android target
+        run: |
+          deps="/data/data/com.termux/files/usr"
+          sudo mkdir -p "$deps/include/xkbcommon"
+
+          # Copy modern (1.22+) Wayland C headers to target include dir
+          sudo cp -f /usr/include/wayland*.h "$deps/include/"
+          sudo cp -rf /usr/include/xkbcommon/* "$deps/include/xkbcommon/"
+          sudo chmod -R a+rX "$deps/include"
+      
+      
       - name: Install libandroid-shmem and libandroid-spawn
         run: |
           cd /tmp
@@ -635,6 +646,32 @@ jobs:
           export XKBCOMMON_LIBS="-L$deps/lib -lxkbcommon"
           export XKBREGISTRY_CFLAGS="-I$deps/include"
           export XKBREGISTRY_LIBS="-L$deps/lib -lxkbregistry"
+
+          export WORKDIR="$GITHUB_WORKSPACE"
+          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export LLVM_MINGW_TOOLCHAIN="/opt/${LLVMMINGW_NAME}/bin"
+          export deps="/data/data/com.termux/files/usr"
+          export TARGET="aarch64-linux-android"
+          export SDKVER="28"
+          export install_prefix="$WORKDIR/wine-build"
+
+          export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
+          export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
+          export AR="$TOOLCHAIN/llvm-ar"
+          export LD="$TOOLCHAIN/ld"
+          export RANLIB="$TOOLCHAIN/llvm-ranlib"
+          export STRIP="$TOOLCHAIN/llvm-strip"
+
+          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
+
+          # IMPORTANT: Include -I$deps/include in CFLAGS and CPPFLAGS
+          export CFLAGS="-O2 -pipe -D__aarch64__ -I$deps/include"
+          export CPPFLAGS="-I$deps/include"
+          export LDFLAGS="-L$deps/lib"
+          
+
+
+
 
           ./configure \
             --enable-archs=arm64ec,aarch64,i386 \
