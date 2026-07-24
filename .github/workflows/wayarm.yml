@@ -1,166 +1,244 @@
-name: all Wine + patch ready for Termux (Wayland Native)
+name:  Wine ARM64 termux (Wayland Native)
 
 on:
-  push:
-    branches: [ bleeding-edge ]
+  schedule:
+    - cron: '0 2 5,20 * *'
   workflow_dispatch:
     inputs:
-      wine_source:
-        description: 'Wine source repository'
-        required: true
-        default: 'winearm64ec'
+      wine_branch:
+        description: 'Wine Branch'
+        required: false
+        default: 'staging'
         type: choice
         options:
-          - proton
-          - staging
-          - winearm64ec
-          - hangover
-          - longjunyu2-custom-9.16
+        - proton
+        - staging
+        - winearm64ec
       wine_version:
-        description: 'Wine version (tag, branch, or commit; leave empty for default)'
+        description: 'Wine Version (e.g., 9.22, or latest)'
         required: false
-        default: ''
+        default: 'latest'
         type: string
-      enable_patches:
-        description: 'Apply esync init patch'
-        required: true
-        default: true
-        type: boolean
 
 env:
   LLVMMINGW_DATE: 20251202
   LLVMMINGW_NAME: llvm-mingw-20251202-ucrt-ubuntu-22.04-x86_64
+  WINE64_DIR: /opt/wine64
+  WINE_SOURCE_DIR: /opt/wine-src
+  DEBIAN_FRONTEND: noninteractive
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
+  build-wine-wow64:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:12
+      options: --user root
+    timeout-minutes: 180
 
     steps:
-      - name: Clone Wine source
+      - name: Install Base Tools
         run: |
-          WINE_SOURCE="${{ github.event.inputs.wine_source || 'longjunyu2-custom-9.16' }}"
-          WINE_VERSION="${{ github.event.inputs.wine_version || '' }}"
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates wget git curl gnupg sudo xz-utils g++ file
 
-          case "$WINE_SOURCE" in
-            proton)
-              REPO="https://github.com/ValveSoftware/wine.git"
-              BRANCH="proton_10.0"
+      - uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        run: |
+          echo "🧹 Freeing disk space..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - name: Setup Sysroot Environment
+        run: |
+          sudo dpkg --add-architecture i386
+          apt-get update && apt-get install -y --no-install-recommends \
+            build-essential git make cmake ninja-build autoconf automake \
+            libtool pkg-config gettext flex bison nasm \
+            python3 python3-setuptools ca-certificates wget \
+            curl xz-utils file libfreetype6-dev libfreetype-dev:i386 libfontconfig-dev:i386 \
+            clang llvm lld unzip \
+            binutils-aarch64-linux-gnu \
+            mingw-w64 gradle \
+            librsvg2-bin \
+            dpkg-dev libwayland-dev \
+            fakeroot \
+            less libpulse-dev libasound2-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer1.0-dev libglib2.0-dev
+
+      - name: Download and Extract Termuxfs for AARCH64
+        run: |
+          mkdir -p $HOME/termuxfs/aarch64
+          cd $HOME/termuxfs/aarch64
+          wget -q https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
+          tar -xf termuxfs.tar
+
+          cd $HOME/termuxfs/aarch64/data/data/com.termux/files
+          wget -q https://github.com/mebabo1/menano/releases/download/Box/wayland_scanner.tar.gz
+          tar xf wayland_scanner.tar.gz
+          rm wayland_scanner.tar.gz
+          
+          echo "TERMUX_PREFIX=$HOME/termuxfs/aarch64/data/data/com.termux/files/usr" >> $GITHUB_ENV
+          echo "TERMUX_SYSROOT=$HOME/termuxfs/aarch64" >> $GITHUB_ENV
+          echo "RUNTIME_PATH=/data/data/com.termux/files/usr" >> $GITHUB_ENV
+
+      - name: Patch wayland-scanner.pc for wlroots Cross-Compilation
+        run: |
+          HOST_SCANNER=$(which wayland-scanner)
+          echo "Real Host Scanner: $HOST_SCANNER"
+
+          mkdir -p $TERMUX_PREFIX/lib/pkgconfig
+          mkdir -p $TERMUX_PREFIX/share/pkgconfig
+
+          cat << EOF > $TERMUX_PREFIX/lib/pkgconfig/wayland-scanner.pc
+          prefix=$TERMUX_PREFIX
+          exec_prefix=\${prefix}
+          bindir=\${exec_prefix}/bin
+          wayland_scanner=$HOST_SCANNER
+
+          Name: Wayland Scanner
+          Description: Wayland scanner stub redirecting to host for cross-compilation
+          Version: 1.22.0
+          EOF
+          cp $TERMUX_PREFIX/lib/pkgconfig/wayland-scanner.pc $TERMUX_PREFIX/share/pkgconfig/wayland-scanner.pc
+
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: ~/Android/Sdk/ndk/27.3.13750724
+          key: android-ndk-r27d
+      
+      - name: Set up Android NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/Android/Sdk/ndk
+          cd $HOME/Android/Sdk/ndk
+          wget https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+          unzip -q android-ndk-r27d-linux.zip
+          mv android-ndk-r27d 27.3.13750724
+
+      - name: Install llvm-mingw
+        run: |
+          mkdir -p /opt
+          cd /opt
+          wget https://github.com/mstorsjo/llvm-mingw/releases/download/${{ env.LLVMMINGW_DATE }}/${{ env.LLVMMINGW_NAME }}.tar.xz
+          tar -xJf ${{ env.LLVMMINGW_NAME }}.tar.xz
+          rm ${{ env.LLVMMINGW_NAME }}.tar.xz
+          echo "/opt/${{ env.LLVMMINGW_NAME }}/bin" >> $GITHUB_PATH
+
+      - name: Clone Wine Source Repository
+        run: |
+          set -e
+          WINE_BRANCH="${{ github.event.inputs.wine_branch || 'staging' }}"
+          WINE_VERSION="${{ github.event.inputs.wine_version || 'latest' }}"
+
+          mkdir -p ${{ env.WINE_SOURCE_DIR }}
+          cd ${{ env.WINE_SOURCE_DIR }}
+
+          case "$WINE_BRANCH" in
+            winearm64ec)
+              git clone -b "proton_11.0" https://github.com/WinNative-Emu/proton-wine.git source
+              cd source
+              git config advice.detachedHead false
+              if [ "$WINE_VERSION" != "latest" ]; then git checkout "$WINE_VERSION"; fi
               ;;
             staging)
-              REPO="https://github.com/Pipetto-crypto/wine.git"
-              BRANCH="proton-9.0-arm64ec"
+              git clone https://github.com/wine-mirror/wine.git source
+              cd source
+              git config advice.detachedHead false
+              if [ "$WINE_VERSION" != "latest" ]; then git checkout "wine-$WINE_VERSION"; fi
               ;;
-            winearm64ec)
-              REPO="https://github.com/xodiosx/Wine-arm64ce.git"
-              BRANCH="bleeding-edge"
-              ;;
-            hangover)
-              REPO="https://github.com/AndreRH/hangover.git"
-              BRANCH="arm64ec"
-              ;;
-            longjunyu2-custom-9.16)
-              REPO="https://github.com/longjunyu2/wine-custom.git"
-              BRANCH="custom-wine-9.16"
-              ;;
-            *)
-              echo "❌ Unknown source: $WINE_SOURCE"
-              exit 1
+            proton)
+              git clone -b "bleeding-edge" https://github.com/ziad9267/wine.git source
+              cd source
+              git config advice.detachedHead false
+              if [ "$WINE_VERSION" != "latest" ]; then git checkout "$WINE_VERSION"; fi
               ;;
           esac
 
-          git clone -b "$BRANCH" "$REPO" source
-          cd source
-          git submodule update --init --recursive
-          if [ -d wine ]; then
-            mv -f wine/* ../
-          fi
-
-          if [ -n "$WINE_VERSION" ]; then
-            git fetch --tags --all
-            git checkout "$WINE_VERSION" || { echo "❌ Failed to checkout $WINE_VERSION"; exit 1; }
-          fi
-
+          WINE_VERSION_ACTUAL=$(git describe --tags --abbrev=0 2>/dev/null || echo "$WINE_VERSION")
           COMMIT_HASH=$(git rev-parse --short HEAD)
-          echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
-          echo "WINE_SOURCE_NAME=$WINE_SOURCE" >> $GITHUB_ENV
-
-      - name: Apply esync init patch (server/process.c)
-        if: ${{ github.event.inputs.enable_patches != 'false' }}
-        run: |
-          cd source
-          cat << 'EOF' > esync.patch
-          --- a/server/process.c
-          +++ b/server/process.c
-          @@ -1703,6 +1710,11 @@ size_t server_init_process(void)
-                           inproc_device_fd = FSYNC_USED_BY_SERVER;
-                           fsync_init( pid );
-                       }
-          +            else if (reply->inproc_device == ESYNC_USED_BY_SERVER)
-          +            {
-          +                int shm_fd = wine_server_receive_fd( &handle );
-          +                esync_init( shm_fd );
-          +            }
-                       else if (reply->inproc_device)
-                       {
-                           inproc_device_fd = wine_server_receive_fd( &handle );
-          EOF
-          git apply esync.patch
-
-      - name: Install host dependencies
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt update
-          sudo apt install -y \
-            build-essential gcc-multilib g++-multilib \
-            flex bison unzip pkg-config gettext \
-            binutils-aarch64-linux-gnu \
-            libc6-dev-arm64-cross \
-            libxml-libxml-perl libssl-dev \
-            libfreetype-dev libpulse-dev libsdl2-dev libfreetype-dev:i386 libfontconfig-dev:i386 \
-            libdbus-1-dev libfontconfig-dev \
-            libgnutls28-dev libopenal-dev \
-            libasound2-dev libgstreamer-plugins-base1.0-dev \
-            libgstreamer1.0-dev libglib2.0-dev \
-            libwayland-dev 
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-
-      - name: Setup LLVM MinGW (with ARM64EC support)
-        run: |
-          sudo mkdir -p /opt
-          cd /opt
-          URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVMMINGW_DATE}/${LLVMMINGW_NAME}.tar.xz"
-          sudo wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 "$URL" -O llvm-mingw.tar.xz
-          sudo tar -xJf llvm-mingw.tar.xz
-          sudo rm llvm-mingw.tar.xz
-          echo "/opt/${LLVMMINGW_NAME}/bin" >> $GITHUB_PATH
-
-      - name: Setup NDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27c
-
-      - name: Setup Termux sysroot and Wayland Stubs
-        run: |
-          mkdir termux && cd termux
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/wine-14/termux-rootfs.tar
-          tar xf termux-rootfs.tar
-          sudo mv data /data
-          sudo chown -R $(whoami):$(whoami) /data
-          mkdir -p /data/data/com.termux/files/usr/tmp
-          sudo chmod -R a+rX /data/data/com.termux/files/usr
-
-          export deps="/data/data/com.termux/files/usr"
-          export HOST_SCANNER=$(which wayland-scanner)
+          BUILD_NAME="wine-${WINE_VERSION_ACTUAL}-${COMMIT_HASH}-${WINE_BRANCH}-arm64-wow64-wayland"
           
-          # Inject Missing Wayland/EGL/xkbcommon Headers into Target Sysroot
-          mkdir -p $deps/include/EGL $deps/include/wayland-client $deps/include/xkbcommon $deps/share/wayland-protocols
-                        
-          mkdir -p $deps/lib/pkgconfig
-          mkdir -p $deps/share/pkgconfig
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "WINE_VERSION_ACTUAL=$WINE_VERSION_ACTUAL" >> $GITHUB_ENV
+
+      - name: Autogen
+        run: |
+          set -e
+          mkdir -p ${{ env.WINE64_DIR }}
+          cp -r ${{ env.WINE_SOURCE_DIR }}/source ${{ env.WINE64_DIR }}/source
+          cd ${{ env.WINE64_DIR }}/source
+                    
           
+          if [ ! -f "configure" ]; then ./autogen.sh; fi
+
+      - name: Build Native wine64 Tools (Host)
+        run: |
+          cd ${{ env.WINE64_DIR }}
+          mkdir -p amd64
+          cd amd64
+          export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
+          
+          ../source/configure \
+            --enable-win64 \
+            --disable-tests \
+            --without-x \
+            --without-vulkan \
+            --without-wayland
+          
+          make __tooldeps__ -j$(nproc) > /dev/null
+          make -C nls
+          mkdir -p /opt/nls-backup
+          cp -aL nls/. /opt/nls-backup/
+
+      - name: Prepare Tools Directory
+        run: |
+          set -e
+          mkdir -p /opt/wine64-native
+          cp -aL ${{ env.WINE64_DIR }}/amd64/. /opt/wine64-native/
+          chmod -R +x /opt/wine64-native/tools/*/
+          chmod -R +r /opt/wine64-native/nls
+          
+          if [ ! -f /opt/wine64-native/nls/locale.nls ]; then
+            cp -af /opt/nls-backup/. /opt/wine64-native/nls/
+          fi
+
+     
+      - name: Termux Path & PulseAudio Integration
+        run: |
+          cd ${{ env.WINE_SOURCE_DIR }}/source          
+          #find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) -exec sed -i 's|/tmp|/data/data/com.termux/files/usr/tmp|g' {} + 2>/dev/null || true
+                    
+          curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/server.c -o dlls/ntdll/unix/server.c
+          FILE_SERVER="dlls/ntdll/unix/server.c"
+          if [ -f "$FILE_SERVER" ]; then
+            sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
+          fi
+          
+          if [ ! -f "configure" ]; then ./autogen.sh; fi
+
+      - name: Build ARM64 WOW64 (Wayland Native)
+        run: |
+          cd ${{ env.WINE_SOURCE_DIR }}/source
+          mkdir -p build-arm64
+          cd build-arm64
+
+          export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
+          export deps="$HOME/termuxfs/aarch64/data/data/com.termux/files/usr"
+          export RUNTIME_PATH="/data/data/com.termux/files/usr"
+          export TOOLCHAIN="$HOME/Android/Sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export TARGET=aarch64-linux-android28
+          export CC=$TOOLCHAIN/$TARGET-clang
+          export CXX=$TOOLCHAIN/$TARGET-clang++
+
           export HOST_WAYLAND_SCANNER=$(which wayland-scanner)
 
           # Wayland Stubs 
@@ -188,129 +266,26 @@ jobs:
           Cflags: -I\${includedir}
           EOF
 
-          
-
-      - name: Stage Wayland and XKB headers for Android target
-        run: |
-          deps="/data/data/com.termux/files/usr"
-          sudo mkdir -p "$deps/include/xkbcommon" "$deps/include/wayland"
-
-          # Copy host Wayland and XKB headers (including xkbcommon-rxkb.h)
-          #sudo cp -f /usr/include/wayland*.h "$deps/include/" 2>/dev/null || true
-          #sudo cp -rf /usr/include/xkbcommon/* "$deps/include/xkbcommon/"
-          sudo chmod -R a+rX "$deps/include"
-          
-      
-      - name: Install libandroid-shmem and libandroid-spawn
-        run: |
-          cd /tmp
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn_0.3_aarch64.deb
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem-static_0.7_aarch64.deb
-          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn-static_0.3_aarch64.deb
-
-          for deb in *.deb; do
-            ar x "$deb"
-            sudo tar -xf data.tar.* -C / \
-              --no-overwrite-dir \
-              --no-same-owner \
-              --no-same-permissions
-            rm -f data.tar.* debian-binary control.tar.*
-          done
-
-          sudo chmod -R 755 /data/data/com.termux/files/usr/lib
-          sudo chmod -R 755 /data/data/com.termux/files/usr/include
-          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.so 2>/dev/null || true
-          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.a 2>/dev/null || true
-
-      - name: Build Wine tools (host)
-        run: |
-          cd source
-          rm -rf libs/vkd3d || true
-          git clone --depth 1 --branch proton_10.0 https://github.com/AndreVto/proton-wine.git /tmp/ntdll_patch
-          cp -r /tmp/ntdll_patch/libs/vkd3d libs/
-          rm -rf /tmp/ntdll_patch
-          export PATH="/opt/${LLVMMINGW_NAME}/bin:$PATH"
-          if [ ! -f ./configure ]; then
-            ./autogen.sh || true
-          fi
-
-          mkdir -p wine-tools-build
-          cd wine-tools-build
-          ../configure --without-x --without-wayland --without-vulkan --without-gstreamer 
-          make -j$(nproc) __tooldeps__ nls/all
-          cd ..
-          mv wine-tools-build wine-tools
-
-      - name: Build Wine (ARM64EC + aarch64 + i386) Wayland Native
-        run: |
-          cd source
-          export WORKDIR="$GITHUB_WORKSPACE"
-          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export LLVM_MINGW_TOOLCHAIN="/opt/${LLVMMINGW_NAME}/bin"
-          export deps="/data/data/com.termux/files/usr"
-          export SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          export SDKVER="28"
-          export TARGET="aarch64-linux-android"
-          export install_prefix="$WORKDIR/wine-build"
-          export winetools_dir="./wine-tools"
-
-          export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
-          export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
-          export AS="$CC"
-          export AR="$TOOLCHAIN/llvm-ar"
-          export LD="$TOOLCHAIN/ld"
-          export RANLIB="$TOOLCHAIN/llvm-ranlib"
-          export STRIP="$TOOLCHAIN/llvm-strip"
-
-          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
-          export DLLTOOL="$LLVM_MINGW_TOOLCHAIN/llvm-dlltool"
-
-          export PKG_CONFIG_PATH="$deps/lib/pkgconfig:$deps/share/pkgconfig"
-          export PKG_CONFIG_LIBDIR="$deps/lib/pkgconfig:$deps/share/pkgconfig"
-          export ACLOCAL_PATH="$deps/lib/aclocal:$deps/share/aclocal"
-          export CPPFLAGS="-I$deps/include -I$deps/include/EGL -I$deps/include/wayland-client -I$deps/include/xkbcommon --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          
-          export CFLAGS="-O2 -pipe -D__aarch64__"  
-          export LDFLAGS="-L$deps/lib -Wl,-rpath=$deps/lib"          
-          export LIBRARY_PATH="$deps/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-          export FREETYPE_CFLAGS="-I$deps/include/freetype2"
-          
-          export PULSE_CFLAGS="-I$deps/include/pulse"
-          export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
-          export SDL2_CFLAGS="-I$deps/include/SDL2"
-          export SDL2_LIBS="-L$deps/lib -lSDL2"
-          
-          export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
-          export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
-
-          # Wayland & Input autoconf overrides
+          # Force cache variables to bypass Wayland linker tests
           export ac_cv_lib_wayland_client_wl_display_connect=yes
           export ac_cv_lib_wayland_server_wl_display_init_shm=yes
           export ac_cv_lib_wayland_egl_wl_egl_window_create=yes
-          export ac_cv_lib_wayland_cursor_wl_cursor_theme_load=yes
           export ac_cv_lib_xkbcommon_xkb_context_new=yes
           export ac_cv_lib_xkbregistry_rxkb_context_new=yes
-
           export ac_cv_header_wayland_client_h=yes
           export ac_cv_header_wayland_egl_h=yes
-          export ac_cv_header_wayland_cursor_h=yes
           export ac_cv_header_xkbcommon_xkbcommon_h=yes
           export ac_cv_header_xkbcommon_xkbregistry_h=yes
-
+          export ac_cv_header_linux_input_h=yes
           export ac_cv_prog_wayland_scanner=$(which wayland-scanner)
+          export ac_cv_func_shm_open=yes
+          export ac_cv_search_shm_open="none required"
           export ac_cv_lib_soname_wayland_client=libwayland-client.so
           export ac_cv_lib_soname_wayland_egl=libwayland-egl.so
           export ac_cv_lib_soname_wayland_cursor=libwayland-cursor.so
           export ac_cv_lib_soname_xkbcommon=libxkbcommon.so
           export ac_cv_lib_soname_xkbregistry=libxkbregistry.so
-
-          export WAYLAND_SCANNER="$(which wayland-scanner)"
-          export WAYLAND_PROTOCOLS_DATADIR="$deps/share/wayland-protocols"
-          export WAYLAND_CLIENT_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
-          export WAYLAND_CLIENT_LIBS="-L$deps/lib -lwayland-client -lffi -landroid-shmem"
-          export WAYLAND_EGL_CFLAGS="-I$deps/include"
-          export WAYLAND_EGL_LIBS="-L$deps/lib -lwayland-egl"
+          export ac_cv_lib_wayland_cursor_wl_cursor_image_get_buffer=yes
           export WAYLAND_CURSOR_CFLAGS="-I$deps/include"
           export WAYLAND_CURSOR_LIBS="-L$deps/lib -lwayland-cursor"
           export XKBCOMMON_CFLAGS="-I$deps/include"
@@ -318,63 +293,46 @@ jobs:
           export XKBREGISTRY_CFLAGS="-I$deps/include"
           export XKBREGISTRY_LIBS="-L$deps/lib -lxkbregistry"
 
-          export WORKDIR="$GITHUB_WORKSPACE"
-          export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export LLVM_MINGW_TOOLCHAIN="/opt/${LLVMMINGW_NAME}/bin"
-          export deps="/data/data/com.termux/files/usr"
-          export TARGET="aarch64-linux-android"
-          export SDKVER="28"
-          export install_prefix="$WORKDIR/wine-build"
+          export FREETYPE_CFLAGS="-I$deps/include/freetype2"
+          export FREETYPE_LIBS="-L$deps/lib -lfreetype"
+          
+          
+          
+          export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
+          export WAYLAND_SCANNER="$(which wayland-scanner)"
 
-          export CC="$TOOLCHAIN/${TARGET}${SDKVER}-clang"
-          export CXX="$TOOLCHAIN/${TARGET}${SDKVER}-clang++"
-          export AR="$TOOLCHAIN/llvm-ar"
-          export LD="$TOOLCHAIN/ld"
-          export RANLIB="$TOOLCHAIN/llvm-ranlib"
-          export STRIP="$TOOLCHAIN/llvm-strip"
+          export WAYLAND_CLIENT_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
+          export WAYLAND_CLIENT_LIBS="-L$deps/lib -lwayland-client -lffi -landroid-shmem"
+          export WAYLAND_SERVER_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
+          export WAYLAND_SERVER_LIBS="-L$deps/lib -lwayland-server -lffi -landroid-shmem"
 
-          export PATH="$LLVM_MINGW_TOOLCHAIN:$PATH"
+          
+          export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
+          
+          # Fixed LDFLAGS: Safe for compiler checks
+          export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
+                 
+          export CFLAGS="-O2 -pipe -ftree-vectorize -Wno-error -Wno-implicit-function-declaration -Wno-incompatible-pointer-types"
+          export PULSE_CFLAGS="-I$deps/include/pulse"
+          export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
 
-          # Include target header paths AND force HAVE_XKBCOMMON_XKBCOMMON_RXKB_H
-          export CFLAGS="-O2 -pipe -D__aarch64__ -I$deps/include -DHAVE_XKBCOMMON_XKBCOMMON_RXKB_H=1 -DHAVE_XKBCOMMON_XKBCOMMON_H=1"
-          export CPPFLAGS="-I$deps/include -DHAVE_XKBCOMMON_XKBCOMMON_RXKB_H=1 -DHAVE_XKBCOMMON_XKBCOMMON_H=1"
-          export LDFLAGS="-L$deps/lib"
+          export SDL2_CFLAGS="-I$deps/include/SDL2"
+          export SDL2_LIBS="-L$deps/lib -lSDL2"
+          export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
+          export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
+            
+          
+          export WINE_NLS_DIR=/opt/wine64-native/nls
 
-          export CFLAGS="-O2 -pipe -D__aarch64__ -I$deps/include -DHAVE_XKBCOMMON_XKBCOMMON_RXKB_H=1 -DHAVE_XKBCOMMON_XKBCOMMON_H=1 $CFLAGS"
-          export CPPFLAGS="-I$deps/include -DHAVE_XKBCOMMON_XKBCOMMON_RXKB_H=1 -DHAVE_XKBCOMMON_XKBCOMMON_H=1 $CPPFLAGS"
-
-
-          ./configure \
-            --enable-archs=arm64ec,aarch64,i386 \
-            --prefix=${install_prefix} \
-            --host=${TARGET}${SDKVER} \
+          # Configuration strictly omitting X11 and injecting Wayland
+          ../configure \
+            --host=$TARGET \
+            --prefix=/tmp/wine-install-wow64 \
             --with-mingw=clang \
-            --with-wine-tools="$winetools_dir" \
-            --enable-win64 \
-            --enable-nls \
-            --with-pulse \
-            --without-alsa \
-            --without-gstreamer \
-            --without-ffmpeg \
+            --enable-archs=arm64ec,aarch64,i386 \
+            --with-wine-tools=/opt/wine64-native \
+            --enable-wineandroid_drv=no \
             --disable-win16 \
-            --disable-opencl \
-            --disable-tests \
-            --without-capi \
-            --without-coreaudio \
-            --without-cups \
-            --without-dbus \
-            --without-gphoto \
-            --without-gssapi \
-            --without-krb5 \
-            --without-netapi \
-            --without-oss \
-            --without-pcap \
-            --without-pcsclite \
-            --without-sane \
-            --without-udev \
-            --without-unwind \
-            --without-usb \
-            --without-v4l2 \
             --with-wayland \
             --without-x \
             --without-xshm \
@@ -383,50 +341,83 @@ jobs:
             --without-xcursor \
             --without-xrandr \
             --without-xrender \
-            --without-xinerama \
             --without-xxf86vm \
-            --with-vulkan \
-            --with-vkd3d \
-            --disable-amd_ags_x64 \
-            --without-amd_ags_x64 \
-            --enable-wineandroid_drv=no
+            --with-pulse \
+            --without-alsa \
+            --without-oss \
+            --without-coreaudio \
+            --without-ffmpeg \
+            --disable-tests
+            
+          make -j$(nproc) > build.log 2>&1 || (tail -n 100 build.log && exit 1)
+          mkdir -p /tmp/wine-install-wow64
+          make install
 
-          make -j$(nproc)
-          make install -j$(nproc)
-
-          ls -la "$install_prefix/"
-
-      - name: Strip binaries and clean up
+      - name: Library Path Consolidation
         run: |
-          cd wine-build
-          rm -rf share/man share/doc
-          cd ..
+          set -e
+          TARGET_PREFIX="/tmp/wine-install-wow64"
+          BUILD_DIR="${{ env.WINE_SOURCE_DIR }}/source/build-arm64"
+          WINE_ARCH="aarch64"
 
-      - name: Package Wine
+          mkdir -p "$TARGET_PREFIX/share/wine/nls"
+          mkdir -p "$TARGET_PREFIX/share/wine/fonts"
+
+          find "$BUILD_DIR" -name "ntdll.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
+          find "$BUILD_DIR/dlls" -name "*.so" -exec cp -vL {} "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/" \;
+
+          [ -d "/opt/wine64-native/nls" ] && cp -v "/opt/wine64-native/nls"/*.nls "$TARGET_PREFIX/share/wine/nls/" 2>/dev/null || true
+          [ -d "${{ env.WINE64_DIR }}/source/fonts" ] && cp -v "${{ env.WINE64_DIR }}/source/fonts"/*.ttf "$TARGET_PREFIX/share/wine/fonts/" 2>/dev/null || true
+
+          PROGRAMS="wine wineserver wineboot winecfg regedit"
+          for prog in $PROGRAMS; do
+              found=$(find "$BUILD_DIR" -type f -name "$prog" -executable | head -1)
+              [ -n "$found" ] && cp -vL "$found" "$TARGET_PREFIX/arm64-v8a/bin/"
+          done
+
+          if [ -f "$TARGET_PREFIX/arm64-v8a/lib/wine/$WINE_ARCH-unix/ntdll.so" ]; then
+              cd "$TARGET_PREFIX/arm64-v8a/bin"
+              ln -sf "../lib/wine/$WINE_ARCH-unix/ntdll.so" "ntdll.so"
+          fi
+          
+          if [ -f "wine" ]; then
+              cp -r wine wine64
+          fi
+
+      - name: Package Output
         run: |
-          cd wine-build
-          tar -cJf ../wine-termux-arm64ec.tar.xz .
-          cd ..
+          mkdir -p wine-package/wine 
+          cp -r /tmp/wine-install-wow64/* wine-package/wine/
+          tar -cJf ${{ env.BUILD_NAME }}.tar.xz -C wine-package wine
+          sha256sum *.tar.xz > checksums.txt
 
-      - name: Upload artifact
+      - name: Upload Artifacts (for workflow run)
         uses: actions/upload-artifact@v4
         with:
-          name: wine-wayland-${{ env.WINE_SOURCE_NAME }}-${{ env.COMMIT_HASH }}
-          path: wine-termux-arm64ec.tar.xz
+          name: Wine-Wayland-${{ github.event.inputs.wine_branch || 'staging' }}-ARM64
+          path: |
+            *.tar.xz
+            checksums.txt
+          retention-days: 30
 
-      - name: Create Release
+      - name: Set Build Date
+        run: echo "BUILD_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: wine-wayland-${{ env.WINE_SOURCE_NAME }}-${{ env.COMMIT_HASH }}-${{ github.run_id }}
-          name: Wine Wayland ${{ env.WINE_SOURCE_NAME }} (${{ env.COMMIT_HASH }}) for Termux (ARM64EC + aarch64 + i386)
+          tag_name: wine-wayland-${{ env.BUILD_DATE }}-${{ github.run_id }}
+          name: "Wine ARM64 Wayland - ${{ env.BUILD_DATE }} (${{ github.event.inputs.wine_branch || 'staging' }})"
           body: |
-            **Wine hybrid WoW64 with ARM64EC support for Termux (Native Wayland)**
-            - Source: ${{ env.WINE_SOURCE_NAME }}
-            - Commit: ${{ env.COMMIT_HASH }}
-            - Backend: Wayland Native (No X11)
-            - Audio: PulseAudio
-            - LLVM MinGW 20251202 (includes ARM64EC toolchain)
-            - Extract to `/data/data/com.termux/files/usr`
-          files: wine-termux-arm64ec.tar.xz
+            🍷 **Wine ARM64 WOW64 (Wayland Native) Build**
+            - Branch: `${{ github.event.inputs.wine_branch || 'staging' }}`
+            - Version: `${{ env.WINE_VERSION_ACTUAL }}`
+            - Build: `${{ env.BUILD_NAME }}`
+            - Date: `${{ env.BUILD_DATE }}`
+
+            SHA256 checksums are included in `checksums.txt`.
+          files: |
+            ${{ env.BUILD_NAME }}.tar.xz
+            checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
