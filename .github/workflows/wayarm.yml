@@ -72,21 +72,54 @@ jobs:
             less libpulse-dev libasound2-dev libgstreamer-plugins-base1.0-dev \
             libgstreamer1.0-dev libglib2.0-dev
 
-      - name: Download and Extract Termuxfs for AARCH64
+      - name: Setup Termux sysroot and Wayland Stubs
         run: |
-          mkdir -p $HOME/termuxfs/aarch64
-          cd $HOME/termuxfs/aarch64
-          wget -q https://github.com/ziad9267/termux-on-gha/releases/download/test/termuxfs.tar
-          tar -xf termuxfs.tar
+          mkdir termux && cd termux
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/wine-14/termux-rootfs.tar
+          tar xf termux-rootfs.tar
+          sudo mv data /data
+          sudo chown -R $(whoami):$(whoami) /data
+          mkdir -p /data/data/com.termux/files/usr/tmp
+          sudo chmod -R a+rX /data/data/com.termux/files/usr
+
+          export deps="/data/data/com.termux/files/usr"
+          
 
           cd $HOME/termuxfs/aarch64/data/data/com.termux/files
           wget -q https://github.com/mebabo1/menano/releases/download/Box/wayland_scanner.tar.gz
           tar xf wayland_scanner.tar.gz
           rm wayland_scanner.tar.gz
+          export HOST_SCANNER=$(which wayland-scanner)
+          
           
           echo "TERMUX_PREFIX=$HOME/termuxfs/aarch64/data/data/com.termux/files/usr" >> $GITHUB_ENV
           echo "TERMUX_SYSROOT=$HOME/termuxfs/aarch64" >> $GITHUB_ENV
           echo "RUNTIME_PATH=/data/data/com.termux/files/usr" >> $GITHUB_ENV
+
+      - name: Install libandroid-shmem and libandroid-spawn
+        run: |
+          cd /tmp
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem_0.7_aarch64.deb
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn_0.3_aarch64.deb
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-shmem-static_0.7_aarch64.deb
+          wget https://github.com/xodiosx/Wine-arm64ce/releases/download/1.1.0/libandroid-spawn-static_0.3_aarch64.deb
+
+          for deb in *.deb; do
+            ar x "$deb"
+            sudo tar -xf data.tar.* -C / \
+              --no-overwrite-dir \
+              --no-same-owner \
+              --no-same-permissions
+            rm -f data.tar.* debian-binary control.tar.*
+          done
+
+          sudo chmod -R 755 /data/data/com.termux/files/usr/lib
+          sudo chmod -R 755 /data/data/com.termux/files/usr/include
+          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.so 2>/dev/null || true
+          sudo chmod 644 /data/data/com.termux/files/usr/lib/libandroid-*.a 2>/dev/null || true
+          
+
+
 
       - name: Patch wayland-scanner.pc for wlroots Cross-Compilation
         run: |
