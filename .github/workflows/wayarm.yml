@@ -197,6 +197,41 @@ jobs:
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "WINE_VERSION_ACTUAL=$WINE_VERSION_ACTUAL" >> $GITHUB_ENV
 
+      - name: Apply esync/fsync client init to server.c
+        run: |
+            cd ${{ env.WINE_SOURCE_DIR }}/source
+            cat << 'EOF' > server_esync.patch
+            --- a/dlls/ntdll/unix/server.c
+            +++ b/dlls/ntdll/unix/server.c
+            @@ -43,6 +43,8 @@
+             #include "unix_private.h"
+             #include "ddk/wdm.h"
+            +#include "fsync.h"
+            +#include "esync.h"
+             
+             WINE_DEFAULT_DEBUG_CHANNEL(server);
+            @@ -1644,8 +1646,16 @@ size_t server_init_process(void)
+                         supported_machines_count = wine_server_reply_size( reply ) / sizeof(*supported_machines);
+            -            if (reply->inproc_device)
+            +            if (reply->inproc_device == FSYNC_USED_BY_SERVER)
+            +            {
+            +                inproc_device_fd = FSYNC_USED_BY_SERVER;
+            +                fsync_init( pid );
+            +            }
+            +            else if (reply->inproc_device == ESYNC_USED_BY_SERVER)
+            +            {
+            +                int shm_fd = wine_server_receive_fd( &handle );
+            +                esync_init( shm_fd );
+            +            }
+            +            else if (reply->inproc_device)
+                         {
+                             inproc_device_fd = wine_server_receive_fd( &handle );
+                             assert( handle == reply->inproc_device );
+            EOF
+                  git apply server_esync.patch
+                    
+      
+      
       - name: Autogen
         run: |
           set -e
@@ -240,11 +275,11 @@ jobs:
         run: |
           cd ${{ env.WINE_SOURCE_DIR }}/source
           # Download custom server.c with Termux/Android adjustments
-          curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/server.c -o dlls/ntdll/unix/server.c
-          FILE_SERVER="dlls/ntdll/unix/server.c"
-          if [ -f "$FILE_SERVER" ]; then
-            sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
-          fi
+          #curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/server.c -o dlls/ntdll/unix/server.c
+          #FILE_SERVER="dlls/ntdll/unix/server.c"
+          #if [ -f "$FILE_SERVER" ]; then
+           # sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
+          #fi
 
           if [ ! -f "configure" ]; then ./autogen.sh; fi
 
