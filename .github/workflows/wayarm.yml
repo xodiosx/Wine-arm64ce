@@ -83,10 +83,10 @@ jobs:
           sudo chmod -R a+rX /data/data/com.termux/files/usr
 
           # Overlay EGL-friendly Wayland headers (fixes EGL)
-          cd /data/data/com.termux/files
-          wget -q https://github.com/mebabo1/menano/releases/download/Box/wayland_scanner.tar.gz
-          tar xf wayland_scanner.tar.gz
-          rm wayland_scanner.tar.gz
+          #cd /data/data/com.termux/files
+          #wget -q https://github.com/mebabo1/menano/releases/download/Box/wayland_scanner.tar.gz
+          #tar xf wayland_scanner.tar.gz
+          #rm wayland_scanner.tar.gz
 
           # Set correct environment variables for all subsequent steps
           echo "TERMUX_PREFIX=/data/data/com.termux/files/usr" >> $GITHUB_ENV
