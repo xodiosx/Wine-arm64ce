@@ -1,4 +1,4 @@
-name: Wine ARM64 termux (Wayland Native) - Fixed Audio & Paths
+name:  Wine termux (Wayland Native)
 
 on:
   schedule:
@@ -168,159 +168,28 @@ jobs:
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "WINE_VERSION_ACTUAL=$WINE_VERSION_ACTUAL" >> $GITHUB_ENV
 
-      # ------------------------------------------------------------
-      # Android SHM headers (must exist before patches that include them)
-      # ------------------------------------------------------------
-      - name: Create Android SHM headers
+      - name: Autogen
         run: |
-          cd ${{ env.WINE_SOURCE_DIR }}/source
-          mkdir -p android/shm_utils
-          cat << 'EOF' > android/shm_utils/shm_utils.h
-          #ifndef __WINE_SERVER_SHM_UTILS_H
-          #define __WINE_SERVER_SHM_UTILS_H
-          #ifdef __ANDROID__
-          #include <fcntl.h>
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <unistd.h>
-          #include <sys/stat.h>
-          static inline int shm_open(const char *name, int oflag, mode_t mode) {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int fd = open(fname, oflag, mode);
-              free(fname);
-              return fd;
-          }
-          static inline int shm_unlink(const char *name) {
-              char *tmpdir = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
-              char *fname;
-              if (asprintf(&fname, "%s/%s", tmpdir, name) == -1) return -1;
-              int ret = unlink(fname);
-              free(fname);
-              return ret;
-          }
-          #endif /* __ANDROID__ */
-          #endif /* __WINE_SERVER_SHM_UTILS_H */
-          EOF
-
-          # Create symlinks so that relative includes work
-          mkdir -p dlls/ntdll/unix/android/shm_utils
-          ln -sf ../../../../../android/shm_utils/shm_utils.h dlls/ntdll/unix/android/shm_utils/shm_utils.h
-          mkdir -p server/android/shm_utils
-          ln -sf ../../../android/shm_utils/shm_utils.h server/android/shm_utils/shm_utils.h
-          echo "✅ Android SHM headers created"
-
-      # ------------------------------------------------------------
-      # Apply ALL Termux/Android patches + PulseAudio fix (then autogen)
-      # ------------------------------------------------------------
-      - name: Apply Termux/Android Patches and Regenerate Build System
-        run: |
-          cd ${{ env.WINE_SOURCE_DIR }}/source
-
-          # === 1. Replace /tmp with Termux tmp directory ===
-          echo "Fixing /tmp paths..."
-          find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) \
-            -exec grep -l "/tmp" {} \; 2>/dev/null | \
-            xargs sed -i 's|/tmp/|/data/data/com.termux/files/usr/tmp/|g' 2>/dev/null || true
-          find server -type f \( -name "*.c" -o -name "*.h" \) \
-            -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-          find . -name "file.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-          find . -name "loader.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-          find . -name "server.c" -exec sed -i 's|"/tmp"|"/data/data/com.termux/files/usr/tmp"|g' {} + 2>/dev/null || true
-
-          # === 2. PulseAudio: default to Termux socket ===
-          echo "Patching winepulse.drv for Termux socket..."
-          PULSE_C="dlls/winepulse.drv/pulse.c"
-          if [ -f "$PULSE_C" ]; then
-            sed -i '/stream->pulse_stream = pa_stream_new(stream->session->ctx, "wine", &sample_spec, map ? &map_info : NULL);/{
-              s/stream->pulse_stream = pa_stream_new(stream->session->ctx, "wine", &sample_spec, map ? &map_info : NULL);/{\
-            const char *server = getenv("PULSE_SERVER"); \
-            if (!server) server = "\/data\/data\/com.termux\/files\/usr\/var\/run\/pulse\/native"; \
-            stream->pulse_stream = pa_stream_new_with_server(stream->session->ctx, "wine", server, \&sample_spec, map ? \&map_info : NULL); }/
-            }' "$PULSE_C"
-          fi
-
-          # === 3. Ensure -lpulse is explicitly linked ===
-          echo "Adding -lpulse to winepulse.drv Makefile..."
-          if [ -f "dlls/winepulse.drv/Makefile.in" ]; then
-            sed -i 's/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm/UNIX_LIBS    = $(PULSE_LIBS) $(PTHREAD_LIBS) -lm -lpulse/' dlls/winepulse.drv/Makefile.in
-          fi
-
-          # === 4. virtual.c Android fixes (userfaultfd, address space, writewatch) ===
-          echo "Patching virtual.c..."
-          VIRTUAL_C="dlls/ntdll/unix/virtual.c"
-          if [ -f "$VIRTUAL_C" ]; then
-            sed -i 's/unsigned int vprot, sec_flags;/unsigned int vprot = 0, sec_flags = 0;/g' "$VIRTUAL_C"
-            sed -i 's/_limit.*0x7fffffff0000/_limit = (void *)0x7fffff0000/g' "$VIRTUAL_C"
-            sed -i 's/use_kernel_writewatch = 1;/use_kernel_writewatch = 0;/g' "$VIRTUAL_C"
-            sed -i 's/uffd_fd = syscall( __NR_userfaultfd/uffd_fd = -1; \/\/ syscall( __NR_userfaultfd/g' "$VIRTUAL_C"
-            sed -i '/static void kernel_writewatch_init(void)/{n;s/^{/{\n    return;/}' "$VIRTUAL_C"
-          fi
-
-          # === 5. loader.c buffer size & ImageBase ===
-          echo "Patching loader.c..."
-          LOADER_C="dlls/ntdll/loader.c"
-          if [ -f "$LOADER_C" ]; then
-            sed -i 's/ULONG buffer\[16\];/ULONG buffer\[32\];/g' "$LOADER_C"
-            sed -i 's/base = (char \*)nt->OptionalHeader.ImageBase;/if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) base = (char *)((const IMAGE_NT_HEADERS64 *)nt)->OptionalHeader.ImageBase; else base = (char *)(UINT_PTR)((const IMAGE_NT_HEADERS32 *)nt)->OptionalHeader.ImageBase;/g' "$LOADER_C"
-          fi
-
-          # === 6. Remove mallopt(M_PERTURB) (unsupported on Android) ===
-          echo "Removing mallopt(M_PERTURB)..."
-          UNIX_LOADER="dlls/ntdll/unix/loader.c"
-          if [ -f "$UNIX_LOADER" ]; then
-            sed -i 's/^\(\s*\)mallopt( M_PERTURB, 0xff );/\1\/\/ mallopt( M_PERTURB, 0xff ); \/\/ not supported on Android/g' "$UNIX_LOADER"
-            sed -i 's/^\(\s*\)mallopt( M_PERTURB, 0 );/\1\/\/ mallopt( M_PERTURB, 0 ); \/\/ not supported on Android/g' "$UNIX_LOADER"
-          fi
-
-          # === 7. Patch esync/fsync to include Android SHM headers ===
-          echo "Patching esync/fsync for Android SHM..."
-          for f in dlls/ntdll/unix/esync.c dlls/ntdll/unix/fsync.c server/esync.c server/fsync.c; do
-            if [ -f "$f" ]; then
-              sed -i '/^#include "unix_private.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$f"
-              sed -i '/^#include "config.h"/a #ifdef __ANDROID__\n#include "android/shm_utils/shm_utils.h"\n#endif' "$f"
-            fi
-          done
-
-          # === 8. Inject esync_init declaration (original server.c fix) ===
-          echo "Injecting esync_init declaration..."
+          set -e
+          mkdir -p ${{ env.WINE64_DIR }}
+          cp -r ${{ env.WINE_SOURCE_DIR }}/source ${{ env.WINE64_DIR }}/source
+          cd ${{ env.WINE64_DIR }}/source
+                    # Inject missing esync_init declaration
           FILE_SERVER="dlls/ntdll/unix/server.c"
           if [ -f "$FILE_SERVER" ]; then
             sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
           fi
+          
+          if [ ! -f "configure" ]; then ./autogen.sh; fi
 
-          # === 9. (Optional) Force WineWayland driver as default ===
-          echo "Forcing Wayland driver in wine.inf..."
-          if [ -f "loader/wine.inf" ]; then
-            sed -i '/\[Drivers\]/a HKCU,"Software\\Wine\\Drivers","Graphics",,"wayland"' loader/wine.inf
-          fi
-
-          echo "✅ All patches applied."
-
-          # --- Regenerate build system because we changed Makefile.in ---
-          echo "Running autogen.sh to regenerate configure & Makefiles..."
-          if [ ! -f "configure" ]; then
-            ./autogen.sh
-          else
-            # If configure already exists, force regeneration because
-            # Makefile.in modifications may have invalidated it
-            ./autogen.sh
-          fi
-          echo "✅ Build system regenerated."
-
-      # ------------------------------------------------------------
-      # Copy source for native tools and build them
-      # ------------------------------------------------------------
       - name: Build Native wine64 Tools (Host)
         run: |
-          mkdir -p ${{ env.WINE64_DIR }}
-          cp -r ${{ env.WINE_SOURCE_DIR }}/source ${{ env.WINE64_DIR }}/source
-
-          cd ${{ env.WINE64_DIR }}/source
+          cd ${{ env.WINE64_DIR }}
+          mkdir -p amd64
+          cd amd64
           export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
           
-          ./configure \
+          ../source/configure \
             --enable-win64 \
             --disable-tests \
             --without-x \
@@ -336,7 +205,7 @@ jobs:
         run: |
           set -e
           mkdir -p /opt/wine64-native
-          cp -aL ${{ env.WINE64_DIR }}/source/. /opt/wine64-native/
+          cp -aL ${{ env.WINE64_DIR }}/amd64/. /opt/wine64-native/
           chmod -R +x /opt/wine64-native/tools/*/
           chmod -R +r /opt/wine64-native/nls
           
@@ -344,9 +213,27 @@ jobs:
             cp -af /opt/nls-backup/. /opt/wine64-native/nls/
           fi
 
-      # ------------------------------------------------------------
-      # Build ARM64 WOW64 from the patched & regenerated source
-      # ------------------------------------------------------------
+      - name: Android Specific Overrides
+        run: |
+          cd ${{ env.WINE_SOURCE_DIR }}/source
+          # Keep the virtual.c override if it is required for your Termux memory management
+          #curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/virtual.c -o dlls/ntdll/unix/virtual.c
+          
+          # REMOVED the env_pro10.c download line so Wine uses its native env.c
+
+      - name: Termux Path & PulseAudio Integration
+        run: |
+          cd ${{ env.WINE_SOURCE_DIR }}/source          
+          #find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.in" -o -name "*.spec" \) -exec sed -i 's|/tmp|/data/data/com.termux/files/usr/tmp|g' {} + 2>/dev/null || true
+                    
+          curl -L https://raw.githubusercontent.com/mebabo1/menano/refs/heads/main/dlls/ntdll/unix/server.c -o dlls/ntdll/unix/server.c
+          FILE_SERVER="dlls/ntdll/unix/server.c"
+          if [ -f "$FILE_SERVER" ]; then
+            sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
+          fi
+          
+          if [ ! -f "configure" ]; then ./autogen.sh; fi
+
       - name: Build ARM64 WOW64 (Wayland Native)
         run: |
           cd ${{ env.WINE_SOURCE_DIR }}/source
@@ -418,6 +305,8 @@ jobs:
           export FREETYPE_CFLAGS="-I$deps/include/freetype2"
           export FREETYPE_LIBS="-L$deps/lib -lfreetype"
           
+          
+          
           export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
           export WAYLAND_SCANNER="$(which wayland-scanner)"
 
@@ -426,8 +315,10 @@ jobs:
           export WAYLAND_SERVER_CFLAGS="-I$deps/include -D__ANDROID__ -DHAVE_SHM_UTILS"
           export WAYLAND_SERVER_LIBS="-L$deps/lib -lwayland-server -lffi -landroid-shmem"
 
+          
           export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
           
+          # Fixed LDFLAGS: Safe for compiler checks
           export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
                  
           export CFLAGS="-O2 -pipe -ftree-vectorize -Wno-error -Wno-implicit-function-declaration -Wno-incompatible-pointer-types"
@@ -443,8 +334,31 @@ jobs:
             --with-mingw=clang \
             --enable-archs=arm64ec,aarch64,i386 \
             --with-wine-tools=/opt/wine64-native \
-            --enable-wineandroid_drv=no \
+                 --enable-win64 \
+            --enable-nls \
+            --with-pulse \
+            --without-alsa \
+            --without-gstreamer \
+            --without-ffmpeg \
             --disable-win16 \
+            --disable-opencl \
+            --disable-tests \
+            --without-capi \
+            --without-coreaudio \
+            --without-cups \
+            --without-dbus \
+            --without-gphoto \
+            --without-gssapi \
+            --without-krb5 \
+            --without-netapi \
+            --without-oss \
+            --without-pcap \
+            --without-pcsclite \
+            --without-sane \
+            --without-udev \
+            --without-unwind \
+            --without-usb \
+            --without-v4l2 \
             --with-wayland \
             --without-x \
             --without-xshm \
@@ -453,13 +367,13 @@ jobs:
             --without-xcursor \
             --without-xrandr \
             --without-xrender \
+            --without-xinerama \
             --without-xxf86vm \
-            --with-pulse \
-            --without-alsa \
-            --without-oss \
-            --without-coreaudio \
-            --without-ffmpeg \
-            --disable-tests
+            --with-vulkan \
+            --with-vkd3d \
+            --disable-amd_ags_x64 \
+            --without-amd_ags_x64 \
+            --enable-wineandroid_drv=no
             
           make -j$(nproc) > build.log 2>&1 || (tail -n 100 build.log && exit 1)
           mkdir -p /tmp/wine-install-wow64
@@ -526,13 +440,6 @@ jobs:
             - Version: `${{ env.WINE_VERSION_ACTUAL }}`
             - Build: `${{ env.BUILD_NAME }}`
             - Date: `${{ env.BUILD_DATE }}`
-
-            **Termux/Android Patches Applied:**
-            - /tmp → Termux tmpdir
-            - PulseAudio defaults to Termux socket (also set PULSE_SERVER if needed)
-            - virtual.c/loader.c/mallopt stability fixes
-            - Android SHM headers for esync/fsync
-            - Wayland forced as default driver
 
             SHA256 checksums are included in `checksums.txt`.
           files: |
