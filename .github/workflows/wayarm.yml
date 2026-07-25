@@ -364,7 +364,9 @@ jobs:
             --without-oss \
             --without-coreaudio \
             --without-ffmpeg \
-            --disable-tests
+            --disable-tests \
+            --disable-amd_ags_x64 \
+            --without-amd_ags_x64
 
           make -j$(nproc) > build.log 2>&1 || (tail -n 100 build.log && exit 1)
           mkdir -p /tmp/wine-install-wow64
