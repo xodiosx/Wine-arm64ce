@@ -1,4 +1,4 @@
-name: Wine termux (Wayland Native) - Fixed Audio & Paths
+name: Wine ARM64 termux (Wayland Native) - Fixed Audio & Paths
 
 on:
   schedule:
@@ -169,7 +169,7 @@ jobs:
           echo "WINE_VERSION_ACTUAL=$WINE_VERSION_ACTUAL" >> $GITHUB_ENV
 
       # ------------------------------------------------------------
-      # Android SHM headers (needed before patches that include them)
+      # Android SHM headers (must exist before patches that include them)
       # ------------------------------------------------------------
       - name: Create Android SHM headers
         run: |
@@ -212,9 +212,9 @@ jobs:
           echo "✅ Android SHM headers created"
 
       # ------------------------------------------------------------
-      # Apply Termux/Android compatibility patches + PulseAudio fix
+      # Apply ALL Termux/Android patches + PulseAudio fix (then autogen)
       # ------------------------------------------------------------
-      - name: Termux Path, PulseAudio & Android Compatibility Patches
+      - name: Apply Termux/Android Patches and Regenerate Build System
         run: |
           cd ${{ env.WINE_SOURCE_DIR }}/source
 
@@ -233,7 +233,6 @@ jobs:
           echo "Patching winepulse.drv for Termux socket..."
           PULSE_C="dlls/winepulse.drv/pulse.c"
           if [ -f "$PULSE_C" ]; then
-            # Replace the pa_stream_new call with one that uses Termux socket if PULSE_SERVER not set
             sed -i '/stream->pulse_stream = pa_stream_new(stream->session->ctx, "wine", &sample_spec, map ? &map_info : NULL);/{
               s/stream->pulse_stream = pa_stream_new(stream->session->ctx, "wine", &sample_spec, map ? &map_info : NULL);/{\
             const char *server = getenv("PULSE_SERVER"); \
@@ -284,39 +283,44 @@ jobs:
             fi
           done
 
-          # === 8. (Optional) Force WineWayland driver as default ===
+          # === 8. Inject esync_init declaration (original server.c fix) ===
+          echo "Injecting esync_init declaration..."
+          FILE_SERVER="dlls/ntdll/unix/server.c"
+          if [ -f "$FILE_SERVER" ]; then
+            sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
+          fi
+
+          # === 9. (Optional) Force WineWayland driver as default ===
           echo "Forcing Wayland driver in wine.inf..."
           if [ -f "loader/wine.inf" ]; then
             sed -i '/\[Drivers\]/a HKCU,"Software\\Wine\\Drivers","Graphics",,"wayland"' loader/wine.inf
           fi
 
-          echo "✅ All Termux/Android patches applied successfully."
+          echo "✅ All patches applied."
 
-      # ------------------------------------------------------------
-      # Continue with original steps: autogen, build tools, etc.
-      # ------------------------------------------------------------
-      - name: Autogen
-        run: |
-          set -e
-          mkdir -p ${{ env.WINE64_DIR }}
-          cp -r ${{ env.WINE_SOURCE_DIR }}/source ${{ env.WINE64_DIR }}/source
-          cd ${{ env.WINE64_DIR }}/source
-
-          FILE_SERVER="dlls/ntdll/unix/server.c"
-          if [ -f "$FILE_SERVER" ]; then
-            sed -i '1s/^/extern void esync_init(int);\n/' "$FILE_SERVER"
+          # --- Regenerate build system because we changed Makefile.in ---
+          echo "Running autogen.sh to regenerate configure & Makefiles..."
+          if [ ! -f "configure" ]; then
+            ./autogen.sh
+          else
+            # If configure already exists, force regeneration because
+            # Makefile.in modifications may have invalidated it
+            ./autogen.sh
           fi
-          
-          if [ ! -f "configure" ]; then ./autogen.sh; fi
+          echo "✅ Build system regenerated."
 
+      # ------------------------------------------------------------
+      # Copy source for native tools and build them
+      # ------------------------------------------------------------
       - name: Build Native wine64 Tools (Host)
         run: |
-          cd ${{ env.WINE64_DIR }}
-          mkdir -p amd64
-          cd amd64
+          mkdir -p ${{ env.WINE64_DIR }}
+          cp -r ${{ env.WINE_SOURCE_DIR }}/source ${{ env.WINE64_DIR }}/source
+
+          cd ${{ env.WINE64_DIR }}/source
           export PATH="/opt/${{ env.LLVMMINGW_NAME }}/bin:$PATH"
           
-          ../source/configure \
+          ./configure \
             --enable-win64 \
             --disable-tests \
             --without-x \
@@ -332,7 +336,7 @@ jobs:
         run: |
           set -e
           mkdir -p /opt/wine64-native
-          cp -aL ${{ env.WINE64_DIR }}/amd64/. /opt/wine64-native/
+          cp -aL ${{ env.WINE64_DIR }}/source/. /opt/wine64-native/
           chmod -R +x /opt/wine64-native/tools/*/
           chmod -R +r /opt/wine64-native/nls
           
@@ -340,6 +344,9 @@ jobs:
             cp -af /opt/nls-backup/. /opt/wine64-native/nls/
           fi
 
+      # ------------------------------------------------------------
+      # Build ARM64 WOW64 from the patched & regenerated source
+      # ------------------------------------------------------------
       - name: Build ARM64 WOW64 (Wayland Native)
         run: |
           cd ${{ env.WINE_SOURCE_DIR }}/source
